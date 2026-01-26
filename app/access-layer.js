@@ -166,6 +166,25 @@ function listEvidence({ baseUrl, anonKey, jwt, orgId, taskId }) {
   });
 }
 
+function listAuditLogs({ baseUrl, anonKey, jwt, caseId }) {
+  if (!caseId) {
+    throw new Error("caseId is required");
+  }
+
+  return request({
+    baseUrl,
+    anonKey,
+    jwt,
+    path: "/rest/v1/audit_logs",
+    method: "GET",
+    query: {
+      select: "*",
+      case_id: `eq.${caseId}`,
+      order: "created_at.desc",
+    },
+  });
+}
+
 function createEvidence({
   baseUrl,
   anonKey,
@@ -197,4 +216,5 @@ module.exports = {
   listTasks,
   createEvidence,
   listEvidence,
+  listAuditLogs,
 };
