@@ -185,6 +185,26 @@ function listAuditLogs({ baseUrl, anonKey, jwt, caseId }) {
   });
 }
 
+function closeOffboardingCase({ baseUrl, anonKey, jwt, caseId }) {
+  if (!caseId) {
+    throw new Error("caseId is required");
+  }
+
+  return request({
+    baseUrl,
+    anonKey,
+    jwt,
+    path: "/rest/v1/offboarding_cases",
+    method: "PATCH",
+    query: {
+      id: `eq.${caseId}`,
+    },
+    body: {
+      status: "closed",
+    },
+  });
+}
+
 function createEvidence({
   baseUrl,
   anonKey,
@@ -214,6 +234,7 @@ module.exports = {
   listOffboardingCases,
   createTask,
   listTasks,
+  closeOffboardingCase,
   createEvidence,
   listEvidence,
   listAuditLogs,
