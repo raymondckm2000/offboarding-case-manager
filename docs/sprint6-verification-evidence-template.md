@@ -3,7 +3,7 @@
 ## Preconditions (must be true)
 - org_id = c4d6f4e6-00dc-45ca-b6d7-7fbccfe1f814
 - case_id = 78f0c7ff-636b-484e-8d27-4e28b3590492
-- reviewer JWT sub = 184ed791-b080-4a54-9278-791f8dc7714d
+- reviewer JWT sub = <REVIEWER_USER_ID>
 - org_members contains (org_id, user_id=sub)
 - offboarding_cases.reviewer_user_id = sub
 

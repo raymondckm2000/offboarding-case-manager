@@ -88,7 +88,5 @@ for insert
 to authenticated
 with check (
   is_org_member(org_id)
-  and created_by = auth.uid()
-  and reviewer_user_id = auth.uid()
   and is_case_reviewer(case_id, org_id)
 );
