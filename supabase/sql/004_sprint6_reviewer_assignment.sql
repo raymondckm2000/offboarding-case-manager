@@ -1,3 +1,4 @@
+-- Sprint 6 base migration: reviewer assignment
 alter table offboarding_cases
   add column if not exists reviewer_user_id uuid;
 
