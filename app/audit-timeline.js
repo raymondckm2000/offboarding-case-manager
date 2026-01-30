@@ -1,8 +1,19 @@
+
+(() => {
+  const { listAuditLogs } = window.offboardingAccessLayer ?? {};
+
+  if (!listAuditLogs) {
+    throw new Error(
+      "offboardingAccessLayer.listAuditLogs is required for audit timeline."
+    );
+  }
+
 const accessLayer =
   typeof require === "function"
     ? require("./access-layer")
     : window.offboardingAccessLayer;
 const { listAuditLogs } = accessLayer;
+
 
 const ACTION_LABELS = {
   "case.create": "Case created",
@@ -124,6 +135,22 @@ async function renderAuditTimelineSection({
   }
 }
 
+
+  const auditTimeline = {
+    ACTION_LABELS,
+    formatAction,
+    renderAuditTimelineSection,
+  };
+
+  if (typeof module !== "undefined" && module.exports) {
+    module.exports = auditTimeline;
+  }
+
+  if (typeof window !== "undefined") {
+    window.offboardingAuditTimeline = auditTimeline;
+  }
+})();
+
 const auditTimeline = {
   ACTION_LABELS,
   formatAction,
@@ -136,4 +163,4 @@ if (typeof module !== "undefined" && module.exports) {
 
 if (typeof window !== "undefined") {
   window.offboardingAuditTimeline = auditTimeline;
-}
+
