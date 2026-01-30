@@ -40,6 +40,20 @@ as $$
   );
 $$;
 
+create or replace function is_case_reviewer(check_case_id uuid, check_org_id uuid)
+returns boolean
+language sql
+stable
+as $$
+  select exists (
+    select 1
+    from offboarding_cases
+    where offboarding_cases.id = check_case_id
+      and offboarding_cases.org_id = check_org_id
+      and offboarding_cases.reviewer_user_id = auth.uid()
+  );
+$$;
+
 create or replace function enforce_task_required_protection()
 returns trigger
 language plpgsql
@@ -61,11 +75,32 @@ before update on tasks
 for each row
 execute function enforce_task_required_protection();
 
+create or replace function log_reviewer_signoff()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  insert into audit_logs (org_id, case_id, entity, entity_id, action, actor)
+  values (new.org_id, new.case_id, 'reviewer_signoffs', new.id, 'create', auth.uid());
+  return new;
+end;
+$$;
+
+drop trigger if exists reviewer_signoffs_audit on reviewer_signoffs;
+create trigger reviewer_signoffs_audit
+after insert on reviewer_signoffs
+for each row
+execute function log_reviewer_signoff();
+
 alter table orgs enable row level security;
 alter table org_members enable row level security;
 alter table offboarding_cases enable row level security;
 alter table tasks enable row level security;
 alter table evidence enable row level security;
+alter table reviewer_signoffs enable row level security;
+alter table audit_logs enable row level security;
 
 create policy orgs_select
 on orgs
@@ -219,5 +254,28 @@ with check (is_org_member(org_id));
 create policy evidence_delete
 on evidence
 for delete
+to authenticated
+using (is_org_member(org_id));
+
+create policy reviewer_signoffs_select
+on reviewer_signoffs
+for select
+to authenticated
+using (is_org_member(org_id));
+
+create policy reviewer_signoffs_insert
+on reviewer_signoffs
+for insert
+to authenticated
+with check (
+  is_org_member(org_id)
+  and created_by = auth.uid()
+  and reviewer_user_id = auth.uid()
+  and is_case_reviewer(case_id, org_id)
+);
+
+create policy audit_logs_select
+on audit_logs
+for select
 to authenticated
 using (is_org_member(org_id));

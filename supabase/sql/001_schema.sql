@@ -27,6 +27,7 @@ create table if not exists offboarding_cases (
   created_by uuid not null references auth.users(id),
   created_at timestamptz not null default now(),
   org_id uuid not null references orgs(id) on delete cascade,
+  reviewer_user_id uuid references auth.users(id),
   unique (id, org_id)
 );
 
@@ -53,4 +54,29 @@ create table if not exists evidence (
   org_id uuid not null references orgs(id) on delete cascade,
   constraint evidence_task_org_fk foreign key (task_id, org_id)
     references tasks(id, org_id) on delete cascade
+);
+
+create table if not exists reviewer_signoffs (
+  id uuid primary key default gen_random_uuid(),
+  case_id uuid not null,
+  org_id uuid not null references orgs(id) on delete cascade,
+  reviewer_user_id uuid not null references auth.users(id),
+  created_by uuid not null references auth.users(id),
+  created_at timestamptz not null default now(),
+  unique (case_id, reviewer_user_id),
+  constraint reviewer_signoffs_case_org_fk foreign key (case_id, org_id)
+    references offboarding_cases(id, org_id) on delete cascade
+);
+
+create table if not exists audit_logs (
+  id uuid primary key default gen_random_uuid(),
+  org_id uuid not null references orgs(id) on delete cascade,
+  case_id uuid not null,
+  entity text not null,
+  entity_id uuid,
+  action text not null,
+  actor uuid references auth.users(id),
+  created_at timestamptz not null default now(),
+  constraint audit_logs_case_org_fk foreign key (case_id, org_id)
+    references offboarding_cases(id, org_id) on delete cascade
 );
