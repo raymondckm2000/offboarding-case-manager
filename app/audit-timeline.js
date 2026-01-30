@@ -1,4 +1,8 @@
-const { listAuditLogs } = require("./access-layer");
+const accessLayer =
+  typeof require === "function"
+    ? require("./access-layer")
+    : window.offboardingAccessLayer;
+const { listAuditLogs } = accessLayer;
 
 const ACTION_LABELS = {
   "case.create": "Case created",
@@ -120,8 +124,16 @@ async function renderAuditTimelineSection({
   }
 }
 
-module.exports = {
+const auditTimeline = {
   ACTION_LABELS,
   formatAction,
   renderAuditTimelineSection,
 };
+
+if (typeof module !== "undefined" && module.exports) {
+  module.exports = auditTimeline;
+}
+
+if (typeof window !== "undefined") {
+  window.offboardingAuditTimeline = auditTimeline;
+}
