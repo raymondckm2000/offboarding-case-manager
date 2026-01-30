@@ -1,3 +1,4 @@
+
 const { listAuditLogs } = window.offboardingAccessLayer ?? {};
 
 if (!listAuditLogs) {
@@ -5,6 +6,13 @@ if (!listAuditLogs) {
     "offboardingAccessLayer.listAuditLogs is required for audit timeline."
   );
 }
+
+const accessLayer =
+  typeof require === "function"
+    ? require("./access-layer")
+    : window.offboardingAccessLayer;
+const { listAuditLogs } = accessLayer;
+
 
 const ACTION_LABELS = {
   "case.create": "Case created",
