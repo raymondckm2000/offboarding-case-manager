@@ -1,3 +1,4 @@
+-- Sprint 6 base migration: org_members user foreign key
 alter table org_members
   drop constraint if exists org_members_user_id_fkey;
 
