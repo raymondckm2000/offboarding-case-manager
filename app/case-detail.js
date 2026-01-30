@@ -1,5 +1,18 @@
-const { renderAuditTimelineSection } = require("./audit-timeline");
-const { listTasks } = require("./access-layer");
+(() => {
+  const { renderAuditTimelineSection } = window.offboardingAuditTimeline ?? {};
+  const { listTasks } = window.offboardingAccessLayer ?? {};
+
+  if (!renderAuditTimelineSection) {
+    throw new Error(
+      "offboardingAuditTimeline.renderAuditTimelineSection is required for case detail."
+    );
+  }
+
+  if (!listTasks) {
+    throw new Error(
+      "offboardingAccessLayer.listTasks is required for case detail."
+    );
+  }
 
 function renderCaseHeader(container, caseRecord) {
   const header = document.createElement("header");
@@ -205,6 +218,15 @@ async function renderCaseDetailPage({
   await refreshAuditTimeline();
 }
 
-module.exports = {
-  renderCaseDetailPage,
-};
+  const caseDetail = {
+    renderCaseDetailPage,
+  };
+
+  if (typeof module !== "undefined" && module.exports) {
+    module.exports = caseDetail;
+  }
+
+  if (typeof window !== "undefined") {
+    window.offboardingCaseDetail = caseDetail;
+  }
+})();
