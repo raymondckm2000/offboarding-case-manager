@@ -1,3 +1,17 @@
+
+const { renderAuditTimelineSection } = window.offboardingAuditTimeline ?? {};
+const { listTasks } = window.offboardingAccessLayer ?? {};
+
+if (!renderAuditTimelineSection) {
+  throw new Error(
+    "offboardingAuditTimeline.renderAuditTimelineSection is required for case detail."
+  );
+}
+
+if (!listTasks) {
+  throw new Error("offboardingAccessLayer.listTasks is required for case detail.");
+}
+
 const auditTimeline =
   typeof require === "function"
     ? require("./audit-timeline")
@@ -8,6 +22,7 @@ const accessLayer =
     : window.offboardingAccessLayer;
 const { renderAuditTimelineSection } = auditTimeline;
 const { listTasks } = accessLayer;
+
 
 function renderCaseHeader(container, caseRecord) {
   const header = document.createElement("header");
