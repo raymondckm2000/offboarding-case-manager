@@ -1,5 +1,13 @@
-const { renderAuditTimelineSection } = require("./audit-timeline");
-const { listTasks } = require("./access-layer");
+const auditTimeline =
+  typeof require === "function"
+    ? require("./audit-timeline")
+    : window.offboardingAuditTimeline;
+const accessLayer =
+  typeof require === "function"
+    ? require("./access-layer")
+    : window.offboardingAccessLayer;
+const { renderAuditTimelineSection } = auditTimeline;
+const { listTasks } = accessLayer;
 
 function renderCaseHeader(container, caseRecord) {
   const header = document.createElement("header");
@@ -205,6 +213,14 @@ async function renderCaseDetailPage({
   await refreshAuditTimeline();
 }
 
-module.exports = {
+const caseDetail = {
   renderCaseDetailPage,
 };
+
+if (typeof module !== "undefined" && module.exports) {
+  module.exports = caseDetail;
+}
+
+if (typeof window !== "undefined") {
+  window.offboardingCaseDetail = caseDetail;
+}
