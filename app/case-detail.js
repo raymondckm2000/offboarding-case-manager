@@ -1,5 +1,5 @@
 const { renderAuditTimelineSection } = require("./audit-timeline");
-const { closeOffboardingCase, listTasks } = require("./access-layer");
+const { listTasks } = require("./access-layer");
 
 function renderCaseHeader(container, caseRecord) {
   const header = document.createElement("header");
@@ -20,14 +20,100 @@ function renderCaseHeader(container, caseRecord) {
   container.appendChild(header);
 }
 
-function summarizeRequiredTasks(tasks = []) {
+function renderStatusHeader(container, caseRecord) {
+  const section = document.createElement("section");
+  section.className = "case-detail__status-header";
+
+  const heading = document.createElement("h2");
+  heading.textContent = "Case Status";
+  section.appendChild(heading);
+
+  const fields = document.createElement("div");
+  fields.className = "case-detail__status-fields";
+
+  const fieldItems = [
+    ["Status", caseRecord?.status ?? "unknown"],
+    ["Employee", caseRecord?.employee_name ?? "Unknown"],
+    ["Department", caseRecord?.dept ?? "Unknown"],
+    ["Position", caseRecord?.position ?? "Unknown"],
+    ["Last Working Day", caseRecord?.last_working_day ?? "Unknown"],
+  ];
+
+  fieldItems.forEach(([label, value]) => {
+    const item = document.createElement("div");
+    item.className = "case-detail__status-field";
+
+    const fieldLabel = document.createElement("div");
+    fieldLabel.className = "case-detail__status-label";
+    fieldLabel.textContent = label;
+
+    const fieldValue = document.createElement("div");
+    fieldValue.className = "case-detail__status-value";
+    fieldValue.textContent = value;
+
+    item.append(fieldLabel, fieldValue);
+    fields.appendChild(item);
+  });
+
+  section.appendChild(fields);
+  container.appendChild(section);
+}
+
+function summarizeTasks(tasks = []) {
   const required = tasks.filter((task) => task.is_required);
-  const incomplete = required.filter((task) => task.status !== "complete");
+  const requiredComplete = required.filter(
+    (task) => task.status === "complete"
+  );
+  const completed = tasks.filter((task) => task.status === "complete");
 
   return {
+    totalCount: tasks.length,
+    completedCount: completed.length,
     requiredCount: required.length,
-    incompleteCount: incomplete.length,
+    requiredCompleteCount: requiredComplete.length,
+    requiredIncompleteCount: required.length - requiredComplete.length,
+    optionalCount: tasks.length - required.length,
+    optionalCompleteCount:
+      completed.length - requiredComplete.length,
   };
+}
+
+function renderClosureReadinessPanel(container) {
+  const section = document.createElement("section");
+  section.className = "case-detail__readiness";
+
+  const heading = document.createElement("h2");
+  heading.textContent = "Closure Readiness (Read-only)";
+
+  const statusLine = document.createElement("div");
+  statusLine.className = "case-detail__readiness-status";
+  statusLine.textContent = "Waiting for task data...";
+
+  const details = document.createElement("div");
+  details.className = "case-detail__readiness-details";
+  details.textContent = "Server readiness will be mirrored when data loads.";
+
+  section.append(heading, statusLine, details);
+  container.appendChild(section);
+
+  return { statusLine, details };
+}
+
+function renderCompletionSummary(container) {
+  const section = document.createElement("section");
+  section.className = "case-detail__completion-summary";
+
+  const heading = document.createElement("h2");
+  heading.textContent = "Completion Summary";
+
+  const summary = document.createElement("div");
+  summary.className = "case-detail__completion-body";
+  summary.textContent = "Waiting for task data...";
+
+  section.append(heading, summary);
+  container.appendChild(section);
+
+  return summary;
 }
 
 async function renderCaseDetailPage({
@@ -42,33 +128,15 @@ async function renderCaseDetailPage({
   }
 
   renderCaseHeader(container, caseRecord);
+  renderStatusHeader(container, caseRecord);
 
-  const statusSection = document.createElement("section");
-  statusSection.className = "case-detail__status";
+  const readinessPanel = renderClosureReadinessPanel(container);
+  const completionSummary = renderCompletionSummary(container);
 
-  const statusValue = document.createElement("div");
-  statusValue.textContent = `Status: ${caseRecord?.status ?? "unknown"}`;
-
-  const eligibility = document.createElement("div");
-  eligibility.textContent = "Checking required tasks...";
-
-  const message = document.createElement("div");
-  message.className = "case-detail__close-message";
-
-  const closeButton = document.createElement("button");
-  closeButton.type = "button";
-  closeButton.textContent = "Close Case";
-
-  let closeDisabledByEligibility = false;
   const hasCaseId = Boolean(caseRecord?.id);
-  if (!hasCaseId || caseRecord?.status === "closed") {
-    closeButton.disabled = true;
-  }
+  const hasOrgId = Boolean(caseRecord?.org_id);
 
-  statusSection.append(statusValue, eligibility, closeButton, message);
-  container.appendChild(statusSection);
-
-  if (hasCaseId && caseRecord?.org_id) {
+  if (hasCaseId && hasOrgId) {
     try {
       const tasks = await listTasks({
         baseUrl,
@@ -77,25 +145,47 @@ async function renderCaseDetailPage({
         orgId: caseRecord.org_id,
         caseId: caseRecord.id,
       });
-      const { requiredCount, incompleteCount } = summarizeRequiredTasks(tasks);
+      const summary = summarizeTasks(tasks ?? []);
 
-      if (requiredCount === 0) {
-        eligibility.textContent = "Required tasks: none.";
-      } else if (incompleteCount > 0) {
-        eligibility.textContent = `Required tasks incomplete (${incompleteCount}/${requiredCount}).`;
-        closeDisabledByEligibility = true;
+      if (summary.requiredCount === 0) {
+        readinessPanel.statusLine.textContent = "No required tasks detected.";
+      } else if (summary.requiredIncompleteCount > 0) {
+        readinessPanel.statusLine.textContent = `Required tasks incomplete (${summary.requiredIncompleteCount}/${summary.requiredCount}).`;
       } else {
-        eligibility.textContent = "All required tasks complete.";
+        readinessPanel.statusLine.textContent = "All required tasks complete.";
+      }
+
+      if (caseRecord?.status === "closed") {
+        readinessPanel.details.textContent =
+          "Server status: closed (read-only).";
+      } else {
+        readinessPanel.details.textContent = `Server status: ${caseRecord?.status ?? "unknown"} (read-only).`;
+      }
+
+      if (summary.totalCount === 0) {
+        completionSummary.textContent = "No tasks available for this case.";
+      } else {
+        completionSummary.textContent =
+          `Tasks complete: ${summary.completedCount}/${summary.totalCount}. ` +
+          `Required complete: ${summary.requiredCompleteCount}/${summary.requiredCount}. ` +
+          `Optional complete: ${summary.optionalCompleteCount}/${summary.optionalCount}.`;
       }
     } catch (error) {
-      eligibility.textContent = `Required task status unavailable (${error?.status ?? "error"}).`;
+      readinessPanel.statusLine.textContent =
+        `Closure readiness unavailable (${error?.status ?? "error"}).`;
+      readinessPanel.details.textContent =
+        "Server state could not be mirrored due to task load failure.";
+      completionSummary.textContent =
+        `Completion summary unavailable (${error?.status ?? "error"}).`;
     }
-  } else if (!caseRecord?.org_id) {
-    eligibility.textContent = "Required task status unavailable (missing org).";
-  }
-
-  if (closeDisabledByEligibility || caseRecord?.status === "closed") {
-    closeButton.disabled = true;
+  } else {
+    const missing = hasCaseId ? "org" : "case";
+    readinessPanel.statusLine.textContent =
+      `Closure readiness unavailable (missing ${missing} identifier).`;
+    readinessPanel.details.textContent =
+      "Server state cannot be mirrored without identifiers.";
+    completionSummary.textContent =
+      `Completion summary unavailable (missing ${missing} identifier).`;
   }
 
   const auditContainer = document.createElement("div");
@@ -111,34 +201,6 @@ async function renderCaseDetailPage({
       caseId: caseRecord?.id,
     });
   }
-
-  closeButton.addEventListener("click", async () => {
-    message.textContent = "Closing case...";
-    closeButton.disabled = true;
-
-    try {
-      const updated = await closeOffboardingCase({
-        baseUrl,
-        anonKey,
-        jwt,
-        caseId: caseRecord?.id,
-      });
-
-      const updatedCase = Array.isArray(updated) ? updated[0] : updated;
-      const newStatus = updatedCase?.status ?? "closed";
-
-      caseRecord.status = newStatus;
-      statusValue.textContent = `Status: ${newStatus}`;
-      eligibility.textContent = "Case closed.";
-      message.textContent = "Case closed successfully.";
-      closeButton.disabled = true;
-
-      await refreshAuditTimeline();
-    } catch (error) {
-      message.textContent = `Unable to close case (${error?.status ?? "error"}).`;
-      closeButton.disabled = closeDisabledByEligibility || caseRecord?.status === "closed";
-    }
-  });
 
   await refreshAuditTimeline();
 }
