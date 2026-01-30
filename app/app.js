@@ -1,6 +1,11 @@
+
 (() => {
   const { listOffboardingCases } = window.offboardingAccessLayer ?? {};
   const { renderCaseDetailPage } = window.offboardingCaseDetail ?? {};
+
+const { listOffboardingCases } = window.offboardingAccessLayer ?? {};
+const { renderCaseDetailPage } = window.offboardingCaseDetail ?? {};
+
 
 const STORAGE_KEY = "ocm.auth";
 
@@ -349,6 +354,11 @@ function renderRoute() {
   navigate(auth ? "#/cases" : "#/login");
 }
 
+
   window.addEventListener("hashchange", renderRoute);
   window.addEventListener("DOMContentLoaded", renderRoute);
 })();
+
+window.addEventListener("hashchange", renderRoute);
+window.addEventListener("DOMContentLoaded", renderRoute);
+
