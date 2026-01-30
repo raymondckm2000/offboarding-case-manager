@@ -1,10 +1,22 @@
 
 (() => {
+  if (window.__ocmAppBootstrapped) {
+    return;
+  }
+  window.__ocmAppBootstrapped = true;
+
+  const { listOffboardingCases } = window.offboardingAccessLayer ?? {};
+  const { renderCaseDetailPage } = window.offboardingCaseDetail ?? {};
+
+
+
+(() => {
   const { listOffboardingCases } = window.offboardingAccessLayer ?? {};
   const { renderCaseDetailPage } = window.offboardingCaseDetail ?? {};
 
 const { listOffboardingCases } = window.offboardingAccessLayer ?? {};
 const { renderCaseDetailPage } = window.offboardingCaseDetail ?? {};
+
 
 
 const STORAGE_KEY = "ocm.auth";
@@ -359,6 +371,12 @@ function renderRoute() {
   window.addEventListener("DOMContentLoaded", renderRoute);
 })();
 
+
+  window.addEventListener("hashchange", renderRoute);
+  window.addEventListener("DOMContentLoaded", renderRoute);
+})();
+
 window.addEventListener("hashchange", renderRoute);
 window.addEventListener("DOMContentLoaded", renderRoute);
+
 

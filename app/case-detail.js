@@ -1,5 +1,13 @@
 
 (() => {
+  if (window.offboardingCaseDetail) {
+    return;
+  }
+
+
+
+(() => {
+
   const { renderAuditTimelineSection } = window.offboardingAuditTimeline ?? {};
   const { listTasks } = window.offboardingAccessLayer ?? {};
 
@@ -15,6 +23,7 @@
     );
   }
 
+
 const auditTimeline =
   typeof require === "function"
     ? require("./audit-timeline")
@@ -25,6 +34,7 @@ const accessLayer =
     : window.offboardingAccessLayer;
 const { renderAuditTimelineSection } = auditTimeline;
 const { listTasks } = accessLayer;
+
 
 
 function renderCaseHeader(container, caseRecord) {
@@ -236,6 +246,10 @@ async function renderCaseDetailPage({
     renderCaseDetailPage,
   };
 
+
+  window.offboardingCaseDetail = caseDetail;
+})();
+
   if (typeof module !== "undefined" && module.exports) {
     module.exports = caseDetail;
   }
@@ -256,4 +270,5 @@ if (typeof module !== "undefined" && module.exports) {
 if (typeof window !== "undefined") {
   window.offboardingCaseDetail = caseDetail;
 }
+
 

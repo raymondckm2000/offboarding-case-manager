@@ -1,5 +1,12 @@
 
 (() => {
+  if (window.offboardingAuditTimeline) {
+    return;
+  }
+
+
+(() => {
+
   const { listAuditLogs } = window.offboardingAccessLayer ?? {};
 
   if (!listAuditLogs) {
@@ -8,11 +15,14 @@
     );
   }
 
+
+
 const accessLayer =
   typeof require === "function"
     ? require("./access-layer")
     : window.offboardingAccessLayer;
 const { listAuditLogs } = accessLayer;
+
 
 
 const ACTION_LABELS = {
@@ -142,6 +152,10 @@ async function renderAuditTimelineSection({
     renderAuditTimelineSection,
   };
 
+
+  window.offboardingAuditTimeline = auditTimeline;
+})();
+
   if (typeof module !== "undefined" && module.exports) {
     module.exports = auditTimeline;
   }
@@ -163,4 +177,5 @@ if (typeof module !== "undefined" && module.exports) {
 
 if (typeof window !== "undefined") {
   window.offboardingAuditTimeline = auditTimeline;
+
 
