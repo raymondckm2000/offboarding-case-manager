@@ -242,17 +242,10 @@ const accessLayer = {
   listAuditLogs,
 };
 
-
-if (typeof window !== "undefined") {
-  if (!window.offboardingAccessLayer) {
-    window.offboardingAccessLayer = accessLayer;
-  }
-
 if (typeof module !== "undefined" && module.exports) {
   module.exports = accessLayer;
 }
 
 if (typeof window !== "undefined") {
   window.offboardingAccessLayer = accessLayer;
-
 }
