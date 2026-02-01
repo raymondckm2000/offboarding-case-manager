@@ -1,8 +1,9 @@
-const accessLayer =
-  typeof require === "function"
-    ? require("./access-layer")
-    : window.offboardingAccessLayer;
-const { listAuditLogs } = accessLayer;
+(() => {
+  const accessLayer =
+    typeof require === "function"
+      ? require("./access-layer")
+      : window.offboardingAccessLayer;
+  const { listAuditLogs } = accessLayer;
 
 const ACTION_LABELS = {
   "case.create": "Case created",
@@ -130,10 +131,11 @@ const auditTimeline = {
   renderAuditTimelineSection,
 };
 
-if (typeof module !== "undefined" && module.exports) {
-  module.exports = auditTimeline;
-}
+  if (typeof module !== "undefined" && module.exports) {
+    module.exports = auditTimeline;
+  }
 
-if (typeof window !== "undefined") {
-  window.offboardingAuditTimeline = auditTimeline;
-}
+  if (typeof window !== "undefined") {
+    window.offboardingAuditTimeline = auditTimeline;
+  }
+})();
