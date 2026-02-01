@@ -62,7 +62,7 @@ async function request({
   }
 }
 
-function listOffboardingCases({ baseUrl, anonKey, jwt, orgId }) {
+function listOffboardingCases({ baseUrl, anonKey, jwt, orgId, caseId, limit }) {
   return request({
     baseUrl,
     anonKey,
@@ -72,6 +72,8 @@ function listOffboardingCases({ baseUrl, anonKey, jwt, orgId }) {
     query: {
       select: "*",
       org_id: orgId ? `eq.${orgId}` : undefined,
+      id: caseId ? `eq.${caseId}` : undefined,
+      limit: limit ?? undefined,
     },
   });
 }
@@ -229,7 +231,7 @@ function createEvidence({
   });
 }
 
-module.exports = {
+const accessLayer = {
   createOffboardingCase,
   listOffboardingCases,
   createTask,
@@ -239,3 +241,9 @@ module.exports = {
   listEvidence,
   listAuditLogs,
 };
+
+if (typeof window !== "undefined") {
+  if (!window.offboardingAccessLayer) {
+    window.offboardingAccessLayer = accessLayer;
+  }
+}

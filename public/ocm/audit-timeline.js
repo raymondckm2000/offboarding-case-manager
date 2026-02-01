@@ -1,4 +1,15 @@
-const { listAuditLogs } = require("./access-layer");
+(() => {
+  if (window.offboardingAuditTimeline) {
+    return;
+  }
+
+  const { listAuditLogs } = window.offboardingAccessLayer ?? {};
+
+  if (!listAuditLogs) {
+    throw new Error(
+      "offboardingAccessLayer.listAuditLogs is required for audit timeline."
+    );
+  }
 
 const ACTION_LABELS = {
   "case.create": "Case created",
@@ -120,8 +131,11 @@ async function renderAuditTimelineSection({
   }
 }
 
-module.exports = {
-  ACTION_LABELS,
-  formatAction,
-  renderAuditTimelineSection,
-};
+  const auditTimeline = {
+    ACTION_LABELS,
+    formatAction,
+    renderAuditTimelineSection,
+  };
+
+  window.offboardingAuditTimeline = auditTimeline;
+})();
