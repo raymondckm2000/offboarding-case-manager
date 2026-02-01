@@ -1,3 +1,4 @@
+(() => {
 const { listOffboardingCases } = window.offboardingAccessLayer ?? {};
 const { renderCaseDetailPage } = window.offboardingCaseDetail ?? {};
 
@@ -350,3 +351,4 @@ function renderRoute() {
 
 window.addEventListener("hashchange", renderRoute);
 window.addEventListener("DOMContentLoaded", renderRoute);
+})();
