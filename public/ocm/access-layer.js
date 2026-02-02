@@ -112,7 +112,7 @@ async function authRequest({
   }
 }
 
-function sendMagicLink({ baseUrl, anonKey, email, redirectTo }) {
+function sendOtp({ baseUrl, anonKey, email }) {
   if (!email) {
     throw new Error("email is required");
   }
@@ -125,7 +125,27 @@ function sendMagicLink({ baseUrl, anonKey, email, redirectTo }) {
     body: {
       email,
       create_user: true,
-      options: redirectTo ? { emailRedirectTo: redirectTo } : undefined,
+    },
+  });
+}
+
+function verifyOtp({ baseUrl, anonKey, email, otp }) {
+  if (!email) {
+    throw new Error("email is required");
+  }
+  if (!otp) {
+    throw new Error("otp is required");
+  }
+
+  return authRequest({
+    baseUrl,
+    anonKey,
+    path: "/auth/v1/verify",
+    method: "POST",
+    body: {
+      email,
+      token: otp,
+      type: "email",
     },
   });
 }
@@ -167,38 +187,6 @@ function listOffboardingCases({
   });
 }
 
-function createOffboardingCase({
-  baseUrl,
-  anonKey,
-  accessToken,
-  orgId,
-  createdBy,
-  employeeName,
-  status = "open",
-  caseNo,
-  dept,
-  position,
-  lastWorkingDay,
-}) {
-  return request({
-    baseUrl,
-    anonKey,
-    accessToken,
-    path: "/rest/v1/offboarding_cases",
-    method: "POST",
-    body: {
-      org_id: orgId,
-      created_by: createdBy,
-      employee_name: employeeName,
-      status,
-      case_no: caseNo,
-      dept,
-      position,
-      last_working_day: lastWorkingDay,
-    },
-  });
-}
-
 function listTasks({ baseUrl, anonKey, accessToken, orgId, caseId }) {
   return request({
     baseUrl,
@@ -210,34 +198,6 @@ function listTasks({ baseUrl, anonKey, accessToken, orgId, caseId }) {
       select: "*",
       org_id: orgId ? `eq.${orgId}` : undefined,
       case_id: caseId ? `eq.${caseId}` : undefined,
-    },
-  });
-}
-
-function createTask({
-  baseUrl,
-  anonKey,
-  accessToken,
-  orgId,
-  createdBy,
-  caseId,
-  title,
-  status = "open",
-  isRequired = false,
-}) {
-  return request({
-    baseUrl,
-    anonKey,
-    accessToken,
-    path: "/rest/v1/tasks",
-    method: "POST",
-    body: {
-      org_id: orgId,
-      created_by: createdBy,
-      case_id: caseId,
-      title,
-      status,
-      is_required: isRequired,
     },
   });
 }
@@ -276,60 +236,13 @@ function listAuditLogs({ baseUrl, anonKey, accessToken, caseId }) {
   });
 }
 
-function closeOffboardingCase({ baseUrl, anonKey, accessToken, caseId }) {
-  if (!caseId) {
-    throw new Error("caseId is required");
-  }
-
-  return request({
-    baseUrl,
-    anonKey,
-    accessToken,
-    path: "/rest/v1/offboarding_cases",
-    method: "PATCH",
-    query: {
-      id: `eq.${caseId}`,
-    },
-    body: {
-      status: "closed",
-    },
-  });
-}
-
-function createEvidence({
-  baseUrl,
-  anonKey,
-  accessToken,
-  orgId,
-  createdBy,
-  taskId,
-  note,
-}) {
-  return request({
-    baseUrl,
-    anonKey,
-    accessToken,
-    path: "/rest/v1/evidence",
-    method: "POST",
-    body: {
-      org_id: orgId,
-      created_by: createdBy,
-      task_id: taskId,
-      note,
-    },
-  });
-}
-
 const accessLayer = {
-  createOffboardingCase,
   listOffboardingCases,
-  createTask,
   listTasks,
-  closeOffboardingCase,
-  createEvidence,
   listEvidence,
   listAuditLogs,
-  sendMagicLink,
+  sendOtp,
+  verifyOtp,
   getAuthUser,
 };
 
