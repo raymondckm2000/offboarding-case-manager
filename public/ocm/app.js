@@ -1,8 +1,7 @@
 (() => {
 const {
   listOffboardingCases,
-  sendOtp,
-  verifyOtp,
+  signInWithPassword,
   getAuthUser,
 } = window.offboardingAccessLayer ?? {};
 const { renderCaseDetailPage } = window.offboardingCaseDetail ?? {};
@@ -223,7 +222,7 @@ function renderLogin(container) {
   const hint = document.createElement("p");
   hint.className = "hint";
   hint.textContent =
-    "Enter your email to receive a one-time passcode (OTP), then verify it to sign in. Tokens stay in local storage and never appear in the URL.";
+    "Sign in with your email and password. Tokens stay in local storage and never appear in the URL.";
 
   const form = document.createElement("form");
   form.className = "form-grid";
@@ -244,22 +243,21 @@ function renderLogin(container) {
   wrapper.append(label, emailInput);
   form.appendChild(wrapper);
 
-  const otpWrapper = document.createElement("div");
-  otpWrapper.className = "form-field";
-  otpWrapper.style.display = "none";
+  const passwordWrapper = document.createElement("div");
+  passwordWrapper.className = "form-field";
 
-  const otpLabel = document.createElement("label");
-  otpLabel.setAttribute("for", "otp");
-  otpLabel.textContent = "One-time passcode";
+  const passwordLabel = document.createElement("label");
+  passwordLabel.setAttribute("for", "password");
+  passwordLabel.textContent = "Password";
 
-  const otpInput = document.createElement("input");
-  otpInput.id = "otp";
-  otpInput.type = "text";
-  otpInput.autocomplete = "one-time-code";
-  otpInput.inputMode = "numeric";
+  const passwordInput = document.createElement("input");
+  passwordInput.id = "password";
+  passwordInput.type = "password";
+  passwordInput.required = true;
+  passwordInput.autocomplete = "current-password";
 
-  otpWrapper.append(otpLabel, otpInput);
-  form.appendChild(otpWrapper);
+  passwordWrapper.append(passwordLabel, passwordInput);
+  form.appendChild(passwordWrapper);
 
   const error = document.createElement("div");
   error.className = "error";
@@ -267,93 +265,39 @@ function renderLogin(container) {
   const status = document.createElement("div");
   status.className = "hint";
 
-  const sendButton = document.createElement("button");
-  sendButton.className = "button";
-  sendButton.type = "button";
-  sendButton.textContent = "Send OTP";
+  const loginButton = document.createElement("button");
+  loginButton.className = "button";
+  loginButton.type = "submit";
+  loginButton.textContent = "Log in";
 
-  const verifyButton = document.createElement("button");
-  verifyButton.className = "button secondary";
-  verifyButton.type = "submit";
-  verifyButton.textContent = "Verify OTP";
-  verifyButton.disabled = true;
-
-  form.append(error, status, sendButton, verifyButton);
-
-  let currentStep = "email";
-
-  sendButton.addEventListener("click", async () => {
-    error.textContent = "";
-    status.textContent = "";
-    sendButton.disabled = true;
-    verifyButton.disabled = true;
-    const previousText = sendButton.textContent;
-    sendButton.textContent = "Sending...";
-
-    try {
-      const config = loadConfig();
-      if (!config.baseUrl || !config.anonKey) {
-        throw new Error("Supabase configuration missing");
-      }
-      if (!sendOtp) {
-        throw new Error("Access layer not available");
-      }
-      const email = emailInput.value.trim();
-      if (!email) {
-        throw new Error("email is required");
-      }
-      await sendOtp({
-        baseUrl: config.baseUrl,
-        anonKey: config.anonKey,
-        email,
-      });
-      currentStep = "otp";
-      otpWrapper.style.display = "";
-      otpInput.required = true;
-      emailInput.disabled = true;
-      verifyButton.disabled = false;
-      sendButton.textContent = "Resend OTP";
-      status.textContent = "OTP sent. Check your email for the code.";
-    } catch (err) {
-      error.textContent =
-        "Unable to send OTP. Please verify your email and access.";
-      sendButton.textContent = previousText;
-      verifyButton.disabled = currentStep !== "otp";
-    } finally {
-      sendButton.disabled = false;
-    }
-  });
+  form.append(error, status, loginButton);
 
   form.addEventListener("submit", async (event) => {
     event.preventDefault();
-    if (currentStep !== "otp") {
-      return;
-    }
     error.textContent = "";
     status.textContent = "";
-    sendButton.disabled = true;
-    verifyButton.disabled = true;
-    const previousText = verifyButton.textContent;
-    verifyButton.textContent = "Verifying...";
+    loginButton.disabled = true;
+    const previousText = loginButton.textContent;
+    loginButton.textContent = "Signing in...";
 
     try {
       const config = loadConfig();
       if (!config.baseUrl || !config.anonKey) {
         throw new Error("Supabase configuration missing");
       }
-      if (!verifyOtp) {
+      if (!signInWithPassword) {
         throw new Error("Access layer not available");
       }
       const email = emailInput.value.trim();
-      const otp = otpInput.value.trim();
-      if (!email || !otp) {
-        throw new Error("email and otp required");
+      const password = passwordInput.value;
+      if (!email || !password) {
+        throw new Error("email and password required");
       }
-      const response = await verifyOtp({
+      const response = await signInWithPassword({
         baseUrl: config.baseUrl,
         anonKey: config.anonKey,
         email,
-        otp,
+        password,
       });
       const accessToken = response?.access_token;
       if (!accessToken) {
@@ -370,11 +314,10 @@ function renderLogin(container) {
       navigate("#/cases");
     } catch (err) {
       error.textContent =
-        "Unable to verify OTP. Please check the code and try again.";
+        "Unable to sign in. Please check your credentials and access.";
     } finally {
-      verifyButton.textContent = previousText;
-      sendButton.disabled = false;
-      verifyButton.disabled = currentStep !== "otp";
+      loginButton.textContent = previousText;
+      loginButton.disabled = false;
     }
   });
 

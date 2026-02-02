@@ -1,13 +1,11 @@
 # Sprint 10 Verification Checklist
 
-Use the steps below to verify the OTP-only login, read-only access layer, and URL hygiene updates for Sprint 10.
+Use the steps below to verify the email + password login, read-only access layer, and URL hygiene updates for Sprint 10.
 
-## OTP-only login flow
+## Email + password login flow
 1. Load the app with a valid `baseUrl` and `anonKey` configured.
-2. Enter a test email address and click **Send OTP**.
-3. Confirm the UI reveals the OTP input and displays “OTP sent. Check your email for the code.”
-4. Enter the OTP from the email and click **Verify OTP**.
-5. Confirm you land on the Case List view and the session is stored in local storage (not in the URL).
+2. Enter a test email address and password, then click **Log in**.
+3. Confirm you land on the Case List view and the session is stored in local storage (not in the URL).
 
 ## Identity panel defaults
 1. After sign-in, inspect the **Signed-in Identity** panel.

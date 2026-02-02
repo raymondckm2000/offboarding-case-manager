@@ -112,40 +112,25 @@ async function authRequest({
   }
 }
 
-function sendOtp({ baseUrl, anonKey, email }) {
+function signInWithPassword({ baseUrl, anonKey, email, password }) {
   if (!email) {
     throw new Error("email is required");
+  }
+  if (!password) {
+    throw new Error("password is required");
   }
 
   return authRequest({
     baseUrl,
     anonKey,
-    path: "/auth/v1/otp",
+    path: "/auth/v1/token",
     method: "POST",
-    body: {
-      email,
-      create_user: true,
+    query: {
+      grant_type: "password",
     },
-  });
-}
-
-function verifyOtp({ baseUrl, anonKey, email, otp }) {
-  if (!email) {
-    throw new Error("email is required");
-  }
-  if (!otp) {
-    throw new Error("otp is required");
-  }
-
-  return authRequest({
-    baseUrl,
-    anonKey,
-    path: "/auth/v1/verify",
-    method: "POST",
     body: {
       email,
-      token: otp,
-      type: "email",
+      password,
     },
   });
 }
@@ -241,8 +226,7 @@ const accessLayer = {
   listTasks,
   listEvidence,
   listAuditLogs,
-  sendOtp,
-  verifyOtp,
+  signInWithPassword,
   getAuthUser,
 };
 
