@@ -13,7 +13,7 @@ function buildUrl(baseUrl, path, query = {}) {
 async function request({
   baseUrl,
   anonKey,
-  jwt,
+  accessToken,
   path,
   method,
   body,
@@ -26,8 +26,8 @@ async function request({
   if (!anonKey) {
     throw new Error("anonKey is required");
   }
-  if (!jwt) {
-    throw new Error("jwt is required");
+  if (!accessToken) {
+    throw new Error("accessToken is required");
   }
 
   const controller = new AbortController();
@@ -38,7 +38,7 @@ async function request({
       method,
       headers: {
         apikey: anonKey,
-        Authorization: `Bearer ${jwt}`,
+        Authorization: `Bearer ${accessToken}`,
         "Content-Type": "application/json",
         Prefer: "return=representation",
       },
@@ -62,11 +62,100 @@ async function request({
   }
 }
 
-function listOffboardingCases({ baseUrl, anonKey, jwt, orgId, caseId, limit }) {
+async function authRequest({
+  baseUrl,
+  anonKey,
+  accessToken,
+  path,
+  method,
+  body,
+  query,
+  timeoutMs = DEFAULT_TIMEOUT_MS,
+}) {
+  if (!baseUrl) {
+    throw new Error("baseUrl is required");
+  }
+  if (!anonKey) {
+    throw new Error("anonKey is required");
+  }
+
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
+
+  try {
+    const headers = {
+      apikey: anonKey,
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${accessToken ?? anonKey}`,
+    };
+
+    const response = await fetch(buildUrl(baseUrl, path, query), {
+      method,
+      headers,
+      body: body ? JSON.stringify(body) : undefined,
+      signal: controller.signal,
+    });
+
+    const text = await response.text();
+    const payload = text ? JSON.parse(text) : null;
+
+    if (!response.ok) {
+      const error = new Error("Supabase auth request failed");
+      error.status = response.status;
+      error.payload = payload;
+      throw error;
+    }
+
+    return payload;
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+function sendMagicLink({ baseUrl, anonKey, email, redirectTo }) {
+  if (!email) {
+    throw new Error("email is required");
+  }
+
+  return authRequest({
+    baseUrl,
+    anonKey,
+    path: "/auth/v1/otp",
+    method: "POST",
+    body: {
+      email,
+      create_user: true,
+      options: redirectTo ? { emailRedirectTo: redirectTo } : undefined,
+    },
+  });
+}
+
+function getAuthUser({ baseUrl, anonKey, accessToken }) {
+  if (!accessToken) {
+    throw new Error("accessToken is required");
+  }
+
+  return authRequest({
+    baseUrl,
+    anonKey,
+    accessToken,
+    path: "/auth/v1/user",
+    method: "GET",
+  });
+}
+
+function listOffboardingCases({
+  baseUrl,
+  anonKey,
+  accessToken,
+  orgId,
+  caseId,
+  limit,
+}) {
   return request({
     baseUrl,
     anonKey,
-    jwt,
+    accessToken,
     path: "/rest/v1/offboarding_cases",
     method: "GET",
     query: {
@@ -81,7 +170,7 @@ function listOffboardingCases({ baseUrl, anonKey, jwt, orgId, caseId, limit }) {
 function createOffboardingCase({
   baseUrl,
   anonKey,
-  jwt,
+  accessToken,
   orgId,
   createdBy,
   employeeName,
@@ -94,7 +183,7 @@ function createOffboardingCase({
   return request({
     baseUrl,
     anonKey,
-    jwt,
+    accessToken,
     path: "/rest/v1/offboarding_cases",
     method: "POST",
     body: {
@@ -110,11 +199,11 @@ function createOffboardingCase({
   });
 }
 
-function listTasks({ baseUrl, anonKey, jwt, orgId, caseId }) {
+function listTasks({ baseUrl, anonKey, accessToken, orgId, caseId }) {
   return request({
     baseUrl,
     anonKey,
-    jwt,
+    accessToken,
     path: "/rest/v1/tasks",
     method: "GET",
     query: {
@@ -128,7 +217,7 @@ function listTasks({ baseUrl, anonKey, jwt, orgId, caseId }) {
 function createTask({
   baseUrl,
   anonKey,
-  jwt,
+  accessToken,
   orgId,
   createdBy,
   caseId,
@@ -139,7 +228,7 @@ function createTask({
   return request({
     baseUrl,
     anonKey,
-    jwt,
+    accessToken,
     path: "/rest/v1/tasks",
     method: "POST",
     body: {
@@ -153,11 +242,11 @@ function createTask({
   });
 }
 
-function listEvidence({ baseUrl, anonKey, jwt, orgId, taskId }) {
+function listEvidence({ baseUrl, anonKey, accessToken, orgId, taskId }) {
   return request({
     baseUrl,
     anonKey,
-    jwt,
+    accessToken,
     path: "/rest/v1/evidence",
     method: "GET",
     query: {
@@ -168,7 +257,7 @@ function listEvidence({ baseUrl, anonKey, jwt, orgId, taskId }) {
   });
 }
 
-function listAuditLogs({ baseUrl, anonKey, jwt, caseId }) {
+function listAuditLogs({ baseUrl, anonKey, accessToken, caseId }) {
   if (!caseId) {
     throw new Error("caseId is required");
   }
@@ -176,7 +265,7 @@ function listAuditLogs({ baseUrl, anonKey, jwt, caseId }) {
   return request({
     baseUrl,
     anonKey,
-    jwt,
+    accessToken,
     path: "/rest/v1/audit_logs",
     method: "GET",
     query: {
@@ -187,7 +276,7 @@ function listAuditLogs({ baseUrl, anonKey, jwt, caseId }) {
   });
 }
 
-function closeOffboardingCase({ baseUrl, anonKey, jwt, caseId }) {
+function closeOffboardingCase({ baseUrl, anonKey, accessToken, caseId }) {
   if (!caseId) {
     throw new Error("caseId is required");
   }
@@ -195,7 +284,7 @@ function closeOffboardingCase({ baseUrl, anonKey, jwt, caseId }) {
   return request({
     baseUrl,
     anonKey,
-    jwt,
+    accessToken,
     path: "/rest/v1/offboarding_cases",
     method: "PATCH",
     query: {
@@ -210,7 +299,7 @@ function closeOffboardingCase({ baseUrl, anonKey, jwt, caseId }) {
 function createEvidence({
   baseUrl,
   anonKey,
-  jwt,
+  accessToken,
   orgId,
   createdBy,
   taskId,
@@ -219,7 +308,7 @@ function createEvidence({
   return request({
     baseUrl,
     anonKey,
-    jwt,
+    accessToken,
     path: "/rest/v1/evidence",
     method: "POST",
     body: {
@@ -240,6 +329,8 @@ const accessLayer = {
   createEvidence,
   listEvidence,
   listAuditLogs,
+  sendMagicLink,
+  getAuthUser,
 };
 
 if (typeof module !== "undefined" && module.exports) {

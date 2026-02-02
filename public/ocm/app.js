@@ -1,11 +1,53 @@
 (() => {
-const { listOffboardingCases } = window.offboardingAccessLayer ?? {};
+const {
+  listOffboardingCases,
+  sendMagicLink,
+  getAuthUser,
+} = window.offboardingAccessLayer ?? {};
 const { renderCaseDetailPage } = window.offboardingCaseDetail ?? {};
 
-const STORAGE_KEY = "ocm.auth";
+const SESSION_KEY = "ocm.session";
+const CONFIG_KEY = "ocm.config";
 
-function loadAuth() {
-  const stored = window.localStorage.getItem(STORAGE_KEY);
+function loadConfig() {
+  const stored = window.localStorage.getItem(CONFIG_KEY);
+  let persisted = {};
+  if (stored) {
+    try {
+      persisted = JSON.parse(stored);
+    } catch (error) {
+      persisted = {};
+    }
+  }
+  const params = new URLSearchParams(window.location.search);
+  const queryConfig = {
+    baseUrl: params.get("baseUrl") || undefined,
+    anonKey: params.get("anonKey") || undefined,
+  };
+  const config = {
+    baseUrl:
+      queryConfig.baseUrl ??
+      window.OCM_CONFIG?.baseUrl ??
+      persisted.baseUrl,
+    anonKey:
+      queryConfig.anonKey ??
+      window.OCM_CONFIG?.anonKey ??
+      persisted.anonKey,
+  };
+
+  if (queryConfig.baseUrl || queryConfig.anonKey) {
+    saveConfig(config);
+  }
+
+  return config;
+}
+
+function saveConfig(config) {
+  window.localStorage.setItem(CONFIG_KEY, JSON.stringify(config));
+}
+
+function loadSession() {
+  const stored = window.localStorage.getItem(SESSION_KEY);
   if (!stored) {
     return null;
   }
@@ -16,12 +58,90 @@ function loadAuth() {
   }
 }
 
-function saveAuth(auth) {
-  window.localStorage.setItem(STORAGE_KEY, JSON.stringify(auth));
+function saveSession(session) {
+  window.localStorage.setItem(SESSION_KEY, JSON.stringify(session));
 }
 
-function clearAuth() {
-  window.localStorage.removeItem(STORAGE_KEY);
+function clearSession() {
+  window.localStorage.removeItem(SESSION_KEY);
+}
+
+function parseJwtClaims(token) {
+  if (!token || typeof token !== "string") {
+    return null;
+  }
+  const parts = token.split(".");
+  if (parts.length < 2) {
+    return null;
+  }
+  const payload = parts[1].replace(/-/g, "+").replace(/_/g, "/");
+  const padded = payload.padEnd(payload.length + ((4 - (payload.length % 4)) % 4), "=");
+  try {
+    const json = atob(padded);
+    return JSON.parse(json);
+  } catch (error) {
+    return null;
+  }
+}
+
+function deriveIdentity(user, claims) {
+  const email = user?.email ?? claims?.email ?? "Unknown";
+  const role =
+    user?.role ??
+    user?.app_metadata?.role ??
+    user?.user_metadata?.role ??
+    claims?.role ??
+    claims?.app_metadata?.role ??
+    claims?.user_metadata?.role ??
+    "Unknown";
+  const org =
+    user?.app_metadata?.org_id ??
+    user?.user_metadata?.org_id ??
+    user?.app_metadata?.org ??
+    user?.user_metadata?.org ??
+    claims?.org_id ??
+    claims?.org ??
+    "Not set";
+
+  return { email, role, org };
+}
+
+async function hydrateIdentity(config, session) {
+  if (!getAuthUser || !session?.accessToken) {
+    return session;
+  }
+  try {
+    const user = await getAuthUser({
+      baseUrl: config.baseUrl,
+      anonKey: config.anonKey,
+      accessToken: session.accessToken,
+    });
+    const claims = parseJwtClaims(session.accessToken);
+    const identity = deriveIdentity(user, claims);
+    const updated = { ...session, user, identity };
+    saveSession(updated);
+    return updated;
+  } catch (error) {
+    return session;
+  }
+}
+
+function parseAuthTokensFromHash() {
+  const rawHash = window.location.hash || "";
+  if (!rawHash.includes("access_token=")) {
+    return null;
+  }
+  const params = new URLSearchParams(rawHash.replace(/^#/, ""));
+  const accessToken = params.get("access_token");
+  if (!accessToken) {
+    return null;
+  }
+  return {
+    accessToken,
+    refreshToken: params.get("refresh_token") || null,
+    expiresIn: Number(params.get("expires_in")) || null,
+    tokenType: params.get("token_type") || "bearer",
+  };
 }
 
 function navigate(hash) {
@@ -56,6 +176,55 @@ function buildShell({ title, showLogout, onLogout }) {
   return { shell, main };
 }
 
+function renderIdentityPanel(container, session, config) {
+  const panel = document.createElement("section");
+  panel.className = "panel identity-panel";
+
+  const heading = document.createElement("h2");
+  heading.textContent = "Signed-in Identity";
+
+  const grid = document.createElement("div");
+  grid.className = "identity-grid";
+
+  const emailValue = document.createElement("div");
+  const roleValue = document.createElement("div");
+  const orgValue = document.createElement("div");
+
+  function renderValue(label, value, target) {
+    const row = document.createElement("div");
+    row.className = "identity-row";
+    const labelEl = document.createElement("div");
+    labelEl.className = "identity-label";
+    labelEl.textContent = label;
+    const valueEl = document.createElement("div");
+    valueEl.className = "identity-value";
+    valueEl.textContent = value;
+    row.append(labelEl, valueEl);
+    target.appendChild(row);
+  }
+
+  const identity = session?.identity;
+  renderValue("Email", identity?.email ?? "Loading...", grid);
+  renderValue("Role", identity?.role ?? "Loading...", grid);
+  renderValue("Org", identity?.org ?? "Loading...", grid);
+
+  panel.append(heading, grid);
+  container.appendChild(panel);
+
+  if (!identity && session?.accessToken) {
+    hydrateIdentity(config, session).then((updated) => {
+      const nextIdentity = updated?.identity ?? identity;
+      if (!nextIdentity) {
+        return;
+      }
+      grid.innerHTML = "";
+      renderValue("Email", nextIdentity.email ?? "Unknown", grid);
+      renderValue("Role", nextIdentity.role ?? "Unknown", grid);
+      renderValue("Org", nextIdentity.org ?? "Not set", grid);
+    });
+  }
+}
+
 function renderLogin(container) {
   const { shell, main } = buildShell({
     title: "Offboarding Case Manager",
@@ -71,39 +240,26 @@ function renderLogin(container) {
   const hint = document.createElement("p");
   hint.className = "hint";
   hint.textContent =
-    "Enter your Supabase credentials. This app is read-only and uses GET requests.";
+    "Enter your email to receive a magic link. Tokens stay in the session and never appear in the UI.";
 
   const form = document.createElement("form");
   form.className = "form-grid";
 
-  const fields = [
-    { id: "baseUrl", label: "Supabase URL", type: "text" },
-    { id: "anonKey", label: "Anon Key", type: "text" },
-    { id: "jwt", label: "JWT (Bearer Token)", type: "password" },
-    { id: "orgId", label: "Org ID (optional)", type: "text" },
-  ];
+  const wrapper = document.createElement("div");
+  wrapper.className = "form-field";
 
-  const stored = loadAuth() ?? {};
-  const inputs = {};
+  const label = document.createElement("label");
+  label.setAttribute("for", "email");
+  label.textContent = "Email";
 
-  fields.forEach((field) => {
-    const wrapper = document.createElement("div");
-    wrapper.className = "form-field";
+  const emailInput = document.createElement("input");
+  emailInput.id = "email";
+  emailInput.type = "email";
+  emailInput.required = true;
+  emailInput.autocomplete = "email";
 
-    const label = document.createElement("label");
-    label.setAttribute("for", field.id);
-    label.textContent = field.label;
-
-    const input = document.createElement("input");
-    input.id = field.id;
-    input.type = field.type;
-    input.required = field.id !== "orgId";
-    input.value = stored[field.id] ?? "";
-
-    inputs[field.id] = input;
-    wrapper.append(label, input);
-    form.appendChild(wrapper);
-  });
+  wrapper.append(label, emailInput);
+  form.appendChild(wrapper);
 
   const error = document.createElement("div");
   error.className = "error";
@@ -121,29 +277,25 @@ function renderLogin(container) {
     submit.disabled = true;
     submit.textContent = "Signing in...";
 
-    const auth = {
-      baseUrl: inputs.baseUrl.value.trim(),
-      anonKey: inputs.anonKey.value.trim(),
-      jwt: inputs.jwt.value.trim(),
-      orgId: inputs.orgId.value.trim(),
-    };
-
     try {
-      if (!listOffboardingCases) {
+      const config = loadConfig();
+      if (!config.baseUrl || !config.anonKey) {
+        throw new Error("Supabase configuration missing");
+      }
+      if (!sendMagicLink) {
         throw new Error("Access layer not available");
       }
-      await listOffboardingCases({
-        baseUrl: auth.baseUrl,
-        anonKey: auth.anonKey,
-        jwt: auth.jwt,
-        orgId: auth.orgId || undefined,
-        limit: 1,
+      await sendMagicLink({
+        baseUrl: config.baseUrl,
+        anonKey: config.anonKey,
+        email: emailInput.value.trim(),
+        redirectTo: window.location.origin + window.location.pathname,
       });
-      saveAuth(auth);
-      navigate("#/cases");
+      error.textContent =
+        "Magic link sent. Check your email to finish signing in.";
     } catch (err) {
       error.textContent =
-        "Unable to authenticate. Please verify credentials and access.";
+        "Unable to send magic link. Please verify your email and access.";
     } finally {
       submit.disabled = false;
       submit.textContent = "Log in";
@@ -155,15 +307,17 @@ function renderLogin(container) {
   container.appendChild(shell);
 }
 
-function renderCaseList(container, auth) {
+function renderCaseList(container, session, config) {
   const { shell, main } = buildShell({
     title: "Case List",
     showLogout: true,
     onLogout: () => {
-      clearAuth();
+      clearSession();
       navigate("#/login");
     },
   });
+
+  renderIdentityPanel(main, session, config);
 
   const panel = document.createElement("section");
   panel.className = "panel";
@@ -194,10 +348,9 @@ function renderCaseList(container, auth) {
   container.appendChild(shell);
 
   listOffboardingCases({
-    baseUrl: auth.baseUrl,
-    anonKey: auth.anonKey,
-    jwt: auth.jwt,
-    orgId: auth.orgId || undefined,
+    baseUrl: config.baseUrl,
+    anonKey: config.anonKey,
+    accessToken: session.accessToken,
   })
     .then((cases = []) => {
       status.textContent = "";
@@ -212,7 +365,7 @@ function renderCaseList(container, auth) {
 
       const tbody = document.createElement("tbody");
       if (!cases || cases.length === 0) {
-        status.textContent = "No cases available for this account.";
+        status.textContent = "No access / no data available for this account.";
       } else {
         cases.forEach((record) => {
           const row = document.createElement("tr");
@@ -249,15 +402,17 @@ function renderCaseList(container, auth) {
     });
 }
 
-function renderCaseDetail(container, auth, caseId) {
+function renderCaseDetail(container, session, config, caseId) {
   const { shell, main } = buildShell({
     title: "Case Detail",
     showLogout: true,
     onLogout: () => {
-      clearAuth();
+      clearSession();
       navigate("#/login");
     },
   });
+
+  renderIdentityPanel(main, session, config);
 
   const back = document.createElement("button");
   back.className = "button secondary case-detail__back";
@@ -282,10 +437,9 @@ function renderCaseDetail(container, auth, caseId) {
   panel.appendChild(loading);
 
   listOffboardingCases({
-    baseUrl: auth.baseUrl,
-    anonKey: auth.anonKey,
-    jwt: auth.jwt,
-    orgId: auth.orgId || undefined,
+    baseUrl: config.baseUrl,
+    anonKey: config.anonKey,
+    accessToken: session.accessToken,
     caseId,
     limit: 1,
   })
@@ -293,15 +447,15 @@ function renderCaseDetail(container, auth, caseId) {
       panel.innerHTML = "";
       const record = records?.[0];
       if (!record) {
-        panel.textContent = "Case not found or access denied.";
+        panel.textContent = "No access / no data for this case.";
         return;
       }
       await renderCaseDetailPage({
         container: panel,
         caseRecord: record,
-        baseUrl: auth.baseUrl,
-        anonKey: auth.anonKey,
-        jwt: auth.jwt,
+        baseUrl: config.baseUrl,
+        anonKey: config.anonKey,
+        accessToken: session.accessToken,
       });
     })
     .catch((error) => {
@@ -317,10 +471,25 @@ function renderRoute() {
   }
   appRoot.innerHTML = "";
 
-  const auth = loadAuth();
+  const config = loadConfig();
+  const authTokens = parseAuthTokensFromHash();
+  if (authTokens) {
+    const session = {
+      accessToken: authTokens.accessToken,
+      refreshToken: authTokens.refreshToken,
+      expiresIn: authTokens.expiresIn,
+      tokenType: authTokens.tokenType,
+    };
+    saveSession(session);
+    hydrateIdentity(config, session);
+    navigate("#/cases");
+    return;
+  }
+
+  const session = loadSession();
   const hash = window.location.hash || "#/login";
 
-  if (!auth && hash !== "#/login") {
+  if (!session && hash !== "#/login") {
     navigate("#/login");
     return;
   }
@@ -330,23 +499,23 @@ function renderRoute() {
     return;
   }
 
-  if (!auth) {
+  if (!session || !session.accessToken) {
     renderLogin(appRoot);
     return;
   }
 
   if (hash === "#/cases") {
-    renderCaseList(appRoot, auth);
+    renderCaseList(appRoot, session, config);
     return;
   }
 
   if (hash.startsWith("#/cases/")) {
     const caseId = hash.replace("#/cases/", "");
-    renderCaseDetail(appRoot, auth, caseId);
+    renderCaseDetail(appRoot, session, config, caseId);
     return;
   }
 
-  navigate(auth ? "#/cases" : "#/login");
+  navigate(session ? "#/cases" : "#/login");
 }
 
 window.addEventListener("hashchange", renderRoute);
