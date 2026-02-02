@@ -1,7 +1,8 @@
 (() => {
 const {
   listOffboardingCases,
-  sendMagicLink,
+  sendOtp,
+  verifyOtp,
   getAuthUser,
 } = window.offboardingAccessLayer ?? {};
 const { renderCaseDetailPage } = window.offboardingCaseDetail ?? {};
@@ -85,7 +86,7 @@ function parseJwtClaims(token) {
 }
 
 function deriveIdentity(user, claims) {
-  const email = user?.email ?? claims?.email ?? "Unknown";
+  const email = user?.email ?? claims?.email ?? "Not set";
   const role =
     user?.role ??
     user?.app_metadata?.role ??
@@ -93,7 +94,7 @@ function deriveIdentity(user, claims) {
     claims?.role ??
     claims?.app_metadata?.role ??
     claims?.user_metadata?.role ??
-    "Unknown";
+    "Not set";
   const org =
     user?.app_metadata?.org_id ??
     user?.user_metadata?.org_id ??
@@ -124,24 +125,6 @@ async function hydrateIdentity(config, session) {
   } catch (error) {
     return session;
   }
-}
-
-function parseAuthTokensFromHash() {
-  const rawHash = window.location.hash || "";
-  if (!rawHash.includes("access_token=")) {
-    return null;
-  }
-  const params = new URLSearchParams(rawHash.replace(/^#/, ""));
-  const accessToken = params.get("access_token");
-  if (!accessToken) {
-    return null;
-  }
-  return {
-    accessToken,
-    refreshToken: params.get("refresh_token") || null,
-    expiresIn: Number(params.get("expires_in")) || null,
-    tokenType: params.get("token_type") || "bearer",
-  };
 }
 
 function navigate(hash) {
@@ -218,8 +201,8 @@ function renderIdentityPanel(container, session, config) {
         return;
       }
       grid.innerHTML = "";
-      renderValue("Email", nextIdentity.email ?? "Unknown", grid);
-      renderValue("Role", nextIdentity.role ?? "Unknown", grid);
+      renderValue("Email", nextIdentity.email ?? "Not set", grid);
+      renderValue("Role", nextIdentity.role ?? "Not set", grid);
       renderValue("Org", nextIdentity.org ?? "Not set", grid);
     });
   }
@@ -240,7 +223,7 @@ function renderLogin(container) {
   const hint = document.createElement("p");
   hint.className = "hint";
   hint.textContent =
-    "Enter your email to receive a magic link. Tokens stay in the session and never appear in the UI.";
+    "Enter your email to receive a one-time passcode (OTP), then verify it to sign in. Tokens stay in local storage and never appear in the URL.";
 
   const form = document.createElement("form");
   form.className = "form-grid";
@@ -261,44 +244,137 @@ function renderLogin(container) {
   wrapper.append(label, emailInput);
   form.appendChild(wrapper);
 
+  const otpWrapper = document.createElement("div");
+  otpWrapper.className = "form-field";
+  otpWrapper.style.display = "none";
+
+  const otpLabel = document.createElement("label");
+  otpLabel.setAttribute("for", "otp");
+  otpLabel.textContent = "One-time passcode";
+
+  const otpInput = document.createElement("input");
+  otpInput.id = "otp";
+  otpInput.type = "text";
+  otpInput.autocomplete = "one-time-code";
+  otpInput.inputMode = "numeric";
+
+  otpWrapper.append(otpLabel, otpInput);
+  form.appendChild(otpWrapper);
+
   const error = document.createElement("div");
   error.className = "error";
 
-  const submit = document.createElement("button");
-  submit.className = "button";
-  submit.type = "submit";
-  submit.textContent = "Log in";
+  const status = document.createElement("div");
+  status.className = "hint";
 
-  form.append(error, submit);
+  const sendButton = document.createElement("button");
+  sendButton.className = "button";
+  sendButton.type = "button";
+  sendButton.textContent = "Send OTP";
 
-  form.addEventListener("submit", async (event) => {
-    event.preventDefault();
+  const verifyButton = document.createElement("button");
+  verifyButton.className = "button secondary";
+  verifyButton.type = "submit";
+  verifyButton.textContent = "Verify OTP";
+  verifyButton.disabled = true;
+
+  form.append(error, status, sendButton, verifyButton);
+
+  let currentStep = "email";
+
+  sendButton.addEventListener("click", async () => {
     error.textContent = "";
-    submit.disabled = true;
-    submit.textContent = "Signing in...";
+    status.textContent = "";
+    sendButton.disabled = true;
+    verifyButton.disabled = true;
+    const previousText = sendButton.textContent;
+    sendButton.textContent = "Sending...";
 
     try {
       const config = loadConfig();
       if (!config.baseUrl || !config.anonKey) {
         throw new Error("Supabase configuration missing");
       }
-      if (!sendMagicLink) {
+      if (!sendOtp) {
         throw new Error("Access layer not available");
       }
-      await sendMagicLink({
+      const email = emailInput.value.trim();
+      if (!email) {
+        throw new Error("email is required");
+      }
+      await sendOtp({
         baseUrl: config.baseUrl,
         anonKey: config.anonKey,
-        email: emailInput.value.trim(),
-        redirectTo: window.location.origin + window.location.pathname,
+        email,
       });
-      error.textContent =
-        "Magic link sent. Check your email to finish signing in.";
+      currentStep = "otp";
+      otpWrapper.style.display = "";
+      otpInput.required = true;
+      emailInput.disabled = true;
+      verifyButton.disabled = false;
+      sendButton.textContent = "Resend OTP";
+      status.textContent = "OTP sent. Check your email for the code.";
     } catch (err) {
       error.textContent =
-        "Unable to send magic link. Please verify your email and access.";
+        "Unable to send OTP. Please verify your email and access.";
+      sendButton.textContent = previousText;
+      verifyButton.disabled = currentStep !== "otp";
     } finally {
-      submit.disabled = false;
-      submit.textContent = "Log in";
+      sendButton.disabled = false;
+    }
+  });
+
+  form.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    if (currentStep !== "otp") {
+      return;
+    }
+    error.textContent = "";
+    status.textContent = "";
+    sendButton.disabled = true;
+    verifyButton.disabled = true;
+    const previousText = verifyButton.textContent;
+    verifyButton.textContent = "Verifying...";
+
+    try {
+      const config = loadConfig();
+      if (!config.baseUrl || !config.anonKey) {
+        throw new Error("Supabase configuration missing");
+      }
+      if (!verifyOtp) {
+        throw new Error("Access layer not available");
+      }
+      const email = emailInput.value.trim();
+      const otp = otpInput.value.trim();
+      if (!email || !otp) {
+        throw new Error("email and otp required");
+      }
+      const response = await verifyOtp({
+        baseUrl: config.baseUrl,
+        anonKey: config.anonKey,
+        email,
+        otp,
+      });
+      const accessToken = response?.access_token;
+      if (!accessToken) {
+        throw new Error("Missing access token");
+      }
+      const session = {
+        accessToken,
+        refreshToken: response?.refresh_token ?? null,
+        expiresIn: response?.expires_in ?? null,
+        tokenType: response?.token_type ?? "bearer",
+      };
+      saveSession(session);
+      hydrateIdentity(config, session);
+      navigate("#/cases");
+    } catch (err) {
+      error.textContent =
+        "Unable to verify OTP. Please check the code and try again.";
+    } finally {
+      verifyButton.textContent = previousText;
+      sendButton.disabled = false;
+      verifyButton.disabled = currentStep !== "otp";
     }
   });
 
@@ -472,20 +548,6 @@ function renderRoute() {
   appRoot.innerHTML = "";
 
   const config = loadConfig();
-  const authTokens = parseAuthTokensFromHash();
-  if (authTokens) {
-    const session = {
-      accessToken: authTokens.accessToken,
-      refreshToken: authTokens.refreshToken,
-      expiresIn: authTokens.expiresIn,
-      tokenType: authTokens.tokenType,
-    };
-    saveSession(session);
-    hydrateIdentity(config, session);
-    navigate("#/cases");
-    return;
-  }
-
   const session = loadSession();
   const hash = window.location.hash || "#/login";
 
