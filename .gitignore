@@ -22,3 +22,6 @@ yarn-error.log*
 # editor
 .vscode/
 .idea/
+
+# local dev config
+public/ocm/config.js

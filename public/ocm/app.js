@@ -24,15 +24,16 @@ function loadConfig() {
     baseUrl: params.get("baseUrl") || undefined,
     anonKey: params.get("anonKey") || undefined,
   };
+  const devConfig = window.OCM_DEV_CONFIG ?? {};
   const config = {
     baseUrl:
       queryConfig.baseUrl ??
-      window.OCM_CONFIG?.baseUrl ??
-      persisted.baseUrl,
+      persisted.baseUrl ??
+      devConfig.baseUrl,
     anonKey:
       queryConfig.anonKey ??
-      window.OCM_CONFIG?.anonKey ??
-      persisted.anonKey,
+      persisted.anonKey ??
+      devConfig.anonKey,
   };
 
   if (queryConfig.baseUrl || queryConfig.anonKey) {
