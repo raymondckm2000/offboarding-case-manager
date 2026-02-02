@@ -1,29 +1,9 @@
-
 (() => {
-  if (window.offboardingAuditTimeline) {
-    return;
-  }
-
-
-(() => {
-
-  const { listAuditLogs } = window.offboardingAccessLayer ?? {};
-
-  if (!listAuditLogs) {
-    throw new Error(
-      "offboardingAccessLayer.listAuditLogs is required for audit timeline."
-    );
-  }
-
-
-
-const accessLayer =
-  typeof require === "function"
-    ? require("./access-layer")
-    : window.offboardingAccessLayer;
-const { listAuditLogs } = accessLayer;
-
-
+  const accessLayer =
+    typeof require === "function"
+      ? require("./access-layer")
+      : window.offboardingAccessLayer;
+  const { listAuditLogs } = accessLayer;
 
 const ACTION_LABELS = {
   "case.create": "Case created",
@@ -109,7 +89,7 @@ async function renderAuditTimelineSection({
   container,
   baseUrl,
   anonKey,
-  jwt,
+  accessToken,
   caseId,
 }) {
   if (!container) {
@@ -130,7 +110,12 @@ async function renderAuditTimelineSection({
   container.appendChild(section);
 
   try {
-    const logs = await listAuditLogs({ baseUrl, anonKey, jwt, caseId });
+    const logs = await listAuditLogs({
+      baseUrl,
+      anonKey,
+      accessToken,
+      caseId,
+    });
 
     if (!logs || logs.length === 0) {
       renderEmptyState(list);
@@ -145,16 +130,11 @@ async function renderAuditTimelineSection({
   }
 }
 
-
-  const auditTimeline = {
-    ACTION_LABELS,
-    formatAction,
-    renderAuditTimelineSection,
-  };
-
-
-  window.offboardingAuditTimeline = auditTimeline;
-})();
+const auditTimeline = {
+  ACTION_LABELS,
+  formatAction,
+  renderAuditTimelineSection,
+};
 
   if (typeof module !== "undefined" && module.exports) {
     module.exports = auditTimeline;
@@ -164,18 +144,3 @@ async function renderAuditTimelineSection({
     window.offboardingAuditTimeline = auditTimeline;
   }
 })();
-
-const auditTimeline = {
-  ACTION_LABELS,
-  formatAction,
-  renderAuditTimelineSection,
-};
-
-if (typeof module !== "undefined" && module.exports) {
-  module.exports = auditTimeline;
-}
-
-if (typeof window !== "undefined") {
-  window.offboardingAuditTimeline = auditTimeline;
-
-

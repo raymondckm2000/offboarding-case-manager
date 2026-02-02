@@ -89,7 +89,7 @@ async function renderAuditTimelineSection({
   container,
   baseUrl,
   anonKey,
-  jwt,
+  accessToken,
   caseId,
 }) {
   if (!container) {
@@ -110,7 +110,12 @@ async function renderAuditTimelineSection({
   container.appendChild(section);
 
   try {
-    const logs = await listAuditLogs({ baseUrl, anonKey, jwt, caseId });
+    const logs = await listAuditLogs({
+      baseUrl,
+      anonKey,
+      accessToken,
+      caseId,
+    });
 
     if (!logs || logs.length === 0) {
       renderEmptyState(list);
