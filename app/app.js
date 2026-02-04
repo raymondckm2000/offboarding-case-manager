@@ -9,6 +9,20 @@ const { renderCaseDetailPage } = window.offboardingCaseDetail ?? {};
 const SESSION_KEY = "ocm.session";
 const CONFIG_KEY = "ocm.config";
 
+function formatCaseStatus(status) {
+  const normalized = (status ?? "").toLowerCase();
+  if (normalized === "closed") {
+    return "Closed";
+  }
+  if (normalized === "ready_to_close" || normalized === "in_review") {
+    return "In Review";
+  }
+  if (normalized === "open") {
+    return "Open";
+  }
+  return status ?? "unknown";
+}
+
 function loadConfig() {
   const stored = window.localStorage.getItem(CONFIG_KEY);
   let persisted = {};
@@ -402,7 +416,7 @@ function renderCaseList(container, session, config) {
           const statusCell = document.createElement("td");
           const pill = document.createElement("span");
           pill.className = "status-pill";
-          pill.textContent = record.status ?? "unknown";
+          pill.textContent = formatCaseStatus(record.status);
           statusCell.appendChild(pill);
 
           const lastDay = document.createElement("td");
