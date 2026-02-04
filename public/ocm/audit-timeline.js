@@ -8,6 +8,8 @@
 const ACTION_LABELS = {
   "case.create": "Case created",
   "case.close": "Case closed",
+  case_closed: "Case closed",
+  case_closure: "Case closed",
   "task.create": "Task created",
   "evidence.create": "Evidence created",
 };

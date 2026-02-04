@@ -29,6 +29,20 @@ function renderCaseHeader(container, caseRecord) {
   container.appendChild(header);
 }
 
+function formatCaseStatus(status) {
+  const normalized = (status ?? "").toLowerCase();
+  if (normalized === "closed") {
+    return "Closed";
+  }
+  if (normalized === "ready_to_close" || normalized === "in_review") {
+    return "In Review";
+  }
+  if (normalized === "open") {
+    return "Open";
+  }
+  return status ?? "unknown";
+}
+
 function renderStatusHeader(container, caseRecord) {
   const section = document.createElement("section");
   section.className = "case-detail__status-header";
@@ -41,7 +55,7 @@ function renderStatusHeader(container, caseRecord) {
   fields.className = "case-detail__status-fields";
 
   const fieldItems = [
-    ["Status", caseRecord?.status ?? "unknown"],
+    ["Status", formatCaseStatus(caseRecord?.status)],
     ["Employee", caseRecord?.employee_name ?? "Unknown"],
     ["Department", caseRecord?.dept ?? "Unknown"],
     ["Position", caseRecord?.position ?? "Unknown"],
@@ -166,9 +180,9 @@ async function renderCaseDetailPage({
 
       if (caseRecord?.status === "closed") {
         readinessPanel.details.textContent =
-          "Server status: closed (read-only).";
+          "Read-only / Case closed.";
       } else {
-        readinessPanel.details.textContent = `Server status: ${caseRecord?.status ?? "unknown"} (read-only).`;
+        readinessPanel.details.textContent = `Server status: ${formatCaseStatus(caseRecord?.status)} (read-only).`;
       }
 
       if (summary.totalCount === 0) {
