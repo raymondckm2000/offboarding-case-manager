@@ -8,6 +8,34 @@ const { renderCaseDetailPage } = window.offboardingCaseDetail ?? {};
 
 const SESSION_KEY = "ocm.session";
 const CONFIG_KEY = "ocm.config";
+const RUNTIME_CONFIG_ENDPOINT = "/api/runtime-config";
+let runtimeConfigPromise;
+
+function normalizeRuntimeConfig(payload) {
+  return {
+    baseUrl: payload?.supabaseUrl ?? payload?.baseUrl ?? undefined,
+    anonKey: payload?.supabaseAnonKey ?? payload?.anonKey ?? undefined,
+  };
+}
+
+function fetchRuntimeConfig() {
+  if (runtimeConfigPromise) {
+    return runtimeConfigPromise;
+  }
+  runtimeConfigPromise = (async () => {
+    try {
+      const response = await fetch(RUNTIME_CONFIG_ENDPOINT, { cache: "no-store" });
+      if (!response.ok) {
+        return {};
+      }
+      const data = await response.json();
+      return normalizeRuntimeConfig(data);
+    } catch (error) {
+      return {};
+    }
+  })();
+  return runtimeConfigPromise;
+}
 
 function formatCaseStatus(status) {
   const normalized = (status ?? "").toLowerCase();
@@ -23,7 +51,7 @@ function formatCaseStatus(status) {
   return status ?? "unknown";
 }
 
-function loadConfig() {
+async function loadConfig() {
   const stored = window.localStorage.getItem(CONFIG_KEY);
   let persisted = {};
   if (stored) {
@@ -38,20 +66,32 @@ function loadConfig() {
     baseUrl: params.get("baseUrl") || undefined,
     anonKey: params.get("anonKey") || undefined,
   };
+  const runtimeConfig = await fetchRuntimeConfig();
   const devConfig = window.OCM_DEV_CONFIG ?? {};
   const config = {
     baseUrl:
       queryConfig.baseUrl ??
       persisted.baseUrl ??
+      runtimeConfig.baseUrl ??
       devConfig.baseUrl,
     anonKey:
       queryConfig.anonKey ??
       persisted.anonKey ??
+      runtimeConfig.anonKey ??
       devConfig.anonKey,
   };
 
   if (queryConfig.baseUrl || queryConfig.anonKey) {
     saveConfig(config);
+  } else if (
+    (!persisted.baseUrl || !persisted.anonKey) &&
+    runtimeConfig.baseUrl &&
+    runtimeConfig.anonKey
+  ) {
+    saveConfig({
+      baseUrl: runtimeConfig.baseUrl,
+      anonKey: runtimeConfig.anonKey,
+    });
   }
 
   return config;
@@ -296,7 +336,7 @@ function renderLogin(container) {
     loginButton.textContent = "Signing in...";
 
     try {
-      const config = loadConfig();
+      const config = await loadConfig();
       if (!config.baseUrl || !config.anonKey) {
         throw new Error("Supabase configuration missing");
       }
@@ -498,14 +538,14 @@ function renderCaseDetail(container, session, config, caseId) {
     });
 }
 
-function renderRoute() {
+async function renderRoute() {
   const appRoot = document.getElementById("app");
   if (!appRoot) {
     return;
   }
   appRoot.innerHTML = "";
 
-  const config = loadConfig();
+  const config = await loadConfig();
   const session = loadSession();
   const hash = window.location.hash || "#/login";
 
@@ -538,6 +578,10 @@ function renderRoute() {
   navigate(session ? "#/cases" : "#/login");
 }
 
-window.addEventListener("hashchange", renderRoute);
-window.addEventListener("DOMContentLoaded", renderRoute);
+window.addEventListener("hashchange", () => {
+  renderRoute();
+});
+window.addEventListener("DOMContentLoaded", () => {
+  renderRoute();
+});
 })();
