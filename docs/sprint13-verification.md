@@ -3,7 +3,11 @@
 > Scope: server-side enforced creation with audit + reporting/SLA visibility.
 
 ## Assumptions
+
+- PO Decision: A — **Org Admin / Owner only** can create cases.
+
 - PO decision not provided; implemented most conservative policy: **Org Admin only** can create cases.
+
 
 ## PR/Delivery Notes (Sprint 13)
 - **PO Decision Record:** Sprint 13 adopts **Org Admin / Owner only** for case creation policy.
