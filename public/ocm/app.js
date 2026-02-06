@@ -1,10 +1,13 @@
 (() => {
 const {
   listOffboardingCases,
+  listReportingCaseSla,
+  listReportingCaseEscalation,
   signInWithPassword,
   getAuthUser,
 } = window.offboardingAccessLayer ?? {};
 const { renderCaseDetailPage } = window.offboardingCaseDetail ?? {};
+const { renderAuditTimelineSection } = window.offboardingAuditTimeline ?? {};
 
 const SESSION_KEY = "ocm.session";
 const CONFIG_KEY = "ocm.config";
@@ -35,6 +38,13 @@ function fetchRuntimeConfig() {
     }
   })();
   return runtimeConfigPromise;
+}
+
+function formatValue(value) {
+  if (value === null || value === undefined || value === "") {
+    return "—";
+  }
+  return String(value);
 }
 
 function formatCaseStatus(status) {
@@ -538,6 +548,211 @@ function renderCaseDetail(container, session, config, caseId) {
     });
 }
 
+function renderOperationsDashboard(container, session, config) {
+  const { shell, main } = buildShell({
+    title: "Operations Dashboard (Read-only)",
+    showLogout: true,
+    onLogout: () => {
+      clearSession();
+      navigate("#/login");
+    },
+  });
+
+  renderIdentityPanel(main, session, config);
+
+  const panel = document.createElement("section");
+  panel.className = "panel";
+
+  const header = document.createElement("div");
+  header.className = "case-list__meta";
+
+  const heading = document.createElement("h1");
+  heading.textContent = "Operations Dashboard";
+
+  const note = document.createElement("div");
+  note.className = "hint";
+  note.textContent =
+    "Read-only reporting view. Rows are rendered directly from reporting views.";
+
+  const back = document.createElement("button");
+  back.className = "button secondary";
+  back.textContent = "Back to Case List";
+  back.addEventListener("click", () => navigate("#/cases"));
+
+  header.append(heading, note, back);
+  panel.appendChild(header);
+
+  const status = document.createElement("div");
+  status.className = "hint";
+  status.textContent = "Loading reporting views...";
+  panel.appendChild(status);
+
+  const table = document.createElement("table");
+  table.className = "case-table";
+  panel.appendChild(table);
+
+  main.appendChild(panel);
+  container.appendChild(shell);
+
+  const slaRequest = listReportingCaseSla({
+    baseUrl: config.baseUrl,
+    anonKey: config.anonKey,
+    accessToken: session.accessToken,
+  });
+  const escalationRequest = listReportingCaseEscalation({
+    baseUrl: config.baseUrl,
+    anonKey: config.anonKey,
+    accessToken: session.accessToken,
+  });
+
+  Promise.allSettled([slaRequest, escalationRequest])
+    .then(([slaResult, escalationResult]) => {
+      const slaRecords =
+        slaResult.status === "fulfilled" ? slaResult.value ?? [] : null;
+      const escalationRecords =
+        escalationResult.status === "fulfilled"
+          ? escalationResult.value ?? []
+          : null;
+
+      const escalationByCase = new Map();
+      (escalationRecords ?? []).forEach((record) => {
+        if (record?.case_id !== undefined && record?.case_id !== null) {
+          escalationByCase.set(record.case_id, record);
+        }
+      });
+
+      let statusMessage = "";
+      const hasReportingFailure =
+        slaResult.status === "rejected" || escalationResult.status === "rejected";
+      if (hasReportingFailure) {
+        statusMessage = "Reporting views not yet available (Sprint 18).";
+      } else if (slaRecords.length === 0) {
+        statusMessage = "No case data returned for this account.";
+      }
+      status.textContent = statusMessage;
+
+      const thead = document.createElement("thead");
+      const headRow = document.createElement("tr");
+      [
+        "Case ID",
+        "Status",
+        "SLA breached",
+        "Escalation level",
+        "Escalation acknowledged",
+        "Last escalated at",
+        "Last acknowledged at",
+      ].forEach((label) => {
+        const th = document.createElement("th");
+        th.textContent = label;
+        headRow.appendChild(th);
+      });
+      thead.appendChild(headRow);
+
+      const tbody = document.createElement("tbody");
+      (slaRecords ?? []).forEach((record) => {
+        const row = document.createElement("tr");
+        const escalationRecord = escalationByCase.get(record?.case_id) ?? null;
+
+        const columns = [
+          record?.case_id,
+          record?.status,
+          record?.sla_breached,
+          escalationRecord?.latest_escalation_level,
+          escalationRecord?.is_acknowledged,
+          escalationRecord?.latest_escalated_at,
+          escalationRecord?.latest_acknowledged_at,
+        ];
+
+        columns.forEach((value) => {
+          const cell = document.createElement("td");
+          cell.textContent = formatValue(value);
+          row.appendChild(cell);
+        });
+        tbody.appendChild(row);
+      });
+
+      table.append(thead, tbody);
+    })
+    .catch(() => {
+      status.textContent = "Reporting views not yet available (Sprint 18).";
+      table.innerHTML = "";
+    });
+
+  const auditPanel = document.createElement("section");
+  auditPanel.className = "panel";
+
+  const auditHeading = document.createElement("h2");
+  auditHeading.textContent = "Audit Timeline Viewer";
+
+  const auditNote = document.createElement("p");
+  auditNote.className = "hint";
+  auditNote.textContent =
+    "Filter by case ID. Read-only view of audit_logs.";
+
+  const auditForm = document.createElement("form");
+  auditForm.className = "form-grid";
+
+  const auditWrapper = document.createElement("div");
+  auditWrapper.className = "form-field";
+
+  const auditLabel = document.createElement("label");
+  auditLabel.setAttribute("for", "audit-case-id");
+  auditLabel.textContent = "Case ID";
+
+  const auditInput = document.createElement("input");
+  auditInput.id = "audit-case-id";
+  auditInput.type = "text";
+  auditInput.autocomplete = "off";
+  auditInput.spellcheck = false;
+
+  auditWrapper.append(auditLabel, auditInput);
+  auditForm.appendChild(auditWrapper);
+
+  const auditButton = document.createElement("button");
+  auditButton.className = "button";
+  auditButton.type = "submit";
+  auditButton.textContent = "Load audit log";
+  auditForm.appendChild(auditButton);
+
+  const auditStatus = document.createElement("div");
+  auditStatus.className = "hint";
+
+  const auditContainer = document.createElement("div");
+
+  auditPanel.append(
+    auditHeading,
+    auditNote,
+    auditForm,
+    auditStatus,
+    auditContainer
+  );
+  main.appendChild(auditPanel);
+
+  auditForm.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    auditStatus.textContent = "";
+    auditContainer.innerHTML = "";
+    if (!renderAuditTimelineSection) {
+      auditStatus.textContent = "Audit module unavailable.";
+      return;
+    }
+    const caseId = auditInput.value.trim();
+    if (!caseId) {
+      auditStatus.textContent = "Enter a case ID to load audit activity.";
+      return;
+    }
+    auditStatus.textContent = "Loading audit activity...";
+    await renderAuditTimelineSection({
+      container: auditContainer,
+      baseUrl: config.baseUrl,
+      anonKey: config.anonKey,
+      accessToken: session.accessToken,
+      caseId,
+    });
+    auditStatus.textContent = "";
+  });
+}
+
 async function renderRoute() {
   const appRoot = document.getElementById("app");
   if (!appRoot) {
@@ -566,6 +781,11 @@ async function renderRoute() {
 
   if (hash === "#/cases") {
     renderCaseList(appRoot, session, config);
+    return;
+  }
+
+  if (hash === "#/dashboard") {
+    renderOperationsDashboard(appRoot, session, config);
     return;
   }
 

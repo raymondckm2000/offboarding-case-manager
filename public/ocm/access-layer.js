@@ -149,6 +149,52 @@ function getAuthUser({ baseUrl, anonKey, accessToken }) {
   });
 }
 
+function listReportingCaseSla({
+  baseUrl,
+  anonKey,
+  accessToken,
+  orgId,
+  caseId,
+  limit,
+}) {
+  return request({
+    baseUrl,
+    anonKey,
+    accessToken,
+    path: "/rest/v1/reporting_case_sla",
+    method: "GET",
+    query: {
+      select: "*",
+      org_id: orgId ? `eq.${orgId}` : undefined,
+      case_id: caseId ? `eq.${caseId}` : undefined,
+      limit: limit ?? undefined,
+    },
+  });
+}
+
+function listReportingCaseEscalation({
+  baseUrl,
+  anonKey,
+  accessToken,
+  orgId,
+  caseId,
+  limit,
+}) {
+  return request({
+    baseUrl,
+    anonKey,
+    accessToken,
+    path: "/rest/v1/reporting_case_escalation",
+    method: "GET",
+    query: {
+      select: "*",
+      org_id: orgId ? `eq.${orgId}` : undefined,
+      case_id: caseId ? `eq.${caseId}` : undefined,
+      limit: limit ?? undefined,
+    },
+  });
+}
+
 function listOffboardingCases({
   baseUrl,
   anonKey,
@@ -225,6 +271,8 @@ const accessLayer = {
   listOffboardingCases,
   listTasks,
   listEvidence,
+  listReportingCaseSla,
+  listReportingCaseEscalation,
   listAuditLogs,
   signInWithPassword,
   getAuthUser,
