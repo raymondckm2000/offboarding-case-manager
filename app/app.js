@@ -1,9 +1,6 @@
 (() => {
-const {
-  listOffboardingCases,
-  signInWithPassword,
-  getAuthUser,
-} = window.offboardingAccessLayer ?? {};
+const { listOffboardingCases, signInWithPassword, getAuthUser } =
+  window.offboardingAccessLayer ?? {};
 const { renderCaseDetailPage } = window.offboardingCaseDetail ?? {};
 
 const SESSION_KEY = "ocm.session";
