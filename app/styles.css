@@ -165,6 +165,12 @@ a {
   gap: 12px;
 }
 
+.case-list__title {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
 .case-detail__back {
   margin-bottom: 16px;
 }
@@ -178,4 +184,34 @@ a {
   font-size: 12px;
   font-weight: 600;
   text-transform: capitalize;
+}
+
+.results-block {
+  margin-top: 12px;
+}
+
+.result-grid {
+  display: grid;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.result-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: #f6f7fb;
+  font-size: 13px;
+}
+
+.result-label {
+  font-weight: 600;
+  color: #52606d;
+}
+
+.result-value {
+  font-weight: 600;
+  color: #1f2933;
 }

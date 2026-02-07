@@ -1,6 +1,13 @@
 (() => {
-const { listOffboardingCases, signInWithPassword, getAuthUser } =
-  window.offboardingAccessLayer ?? {};
+const {
+  listOffboardingCases,
+  signInWithPassword,
+  getAuthUser,
+  adminInspectUser,
+  adminInspectOrg,
+  adminAccessCheck,
+  adminReportingSanity,
+} = window.offboardingAccessLayer ?? {};
 const { renderCaseDetailPage } = window.offboardingCaseDetail ?? {};
 
 const SESSION_KEY = "ocm.session";
@@ -259,6 +266,60 @@ function renderIdentityPanel(container, session, config) {
   }
 }
 
+function renderKeyValueGrid(container, entries) {
+  const grid = document.createElement("div");
+  grid.className = "result-grid";
+  entries.forEach(({ label, value }) => {
+    const row = document.createElement("div");
+    row.className = "result-row";
+    const labelEl = document.createElement("div");
+    labelEl.className = "result-label";
+    labelEl.textContent = label;
+    const valueEl = document.createElement("div");
+    valueEl.className = "result-value";
+    valueEl.textContent = value ?? "—";
+    row.append(labelEl, valueEl);
+    grid.appendChild(row);
+  });
+  container.appendChild(grid);
+}
+
+function renderResultTable(container, headers, rows) {
+  const table = document.createElement("table");
+  table.className = "case-table";
+  const thead = document.createElement("thead");
+  const headRow = document.createElement("tr");
+  headers.forEach((label) => {
+    const th = document.createElement("th");
+    th.textContent = label;
+    headRow.appendChild(th);
+  });
+  thead.appendChild(headRow);
+  table.appendChild(thead);
+
+  const tbody = document.createElement("tbody");
+  if (!rows.length) {
+    const emptyRow = document.createElement("tr");
+    const cell = document.createElement("td");
+    cell.colSpan = headers.length;
+    cell.textContent = "No data returned.";
+    emptyRow.appendChild(cell);
+    tbody.appendChild(emptyRow);
+  } else {
+    rows.forEach((row) => {
+      const tr = document.createElement("tr");
+      row.forEach((value) => {
+        const cell = document.createElement("td");
+        cell.textContent = value ?? "—";
+        tr.appendChild(cell);
+      });
+      tbody.appendChild(tr);
+    });
+  }
+  table.appendChild(tbody);
+  container.appendChild(table);
+}
+
 function renderLogin(container) {
   const { shell, main } = buildShell({
     title: "Offboarding Case Manager",
@@ -378,6 +439,376 @@ function renderLogin(container) {
   container.appendChild(shell);
 }
 
+function renderAdminInspection(container, session, config) {
+  const { shell, main } = buildShell({
+    title: "Admin Inspection (Platform Admin)",
+    showLogout: true,
+    onLogout: () => {
+      clearSession();
+      navigate("#/login");
+    },
+  });
+
+  renderIdentityPanel(main, session, config);
+
+  const back = document.createElement("button");
+  back.className = "button secondary case-detail__back";
+  back.textContent = "Back to Case List";
+  back.addEventListener("click", () => navigate("#/cases"));
+  main.appendChild(back);
+
+  const userPanel = document.createElement("section");
+  userPanel.className = "panel";
+  const userHeading = document.createElement("h2");
+  userHeading.textContent = "User Inspection";
+  const userHint = document.createElement("p");
+  userHint.className = "hint";
+  userHint.textContent =
+    "Look up a user by email or user ID to see org membership and Org-not-set state (platform admin only).";
+  const userForm = document.createElement("form");
+  userForm.className = "form-grid";
+  const userEmailField = document.createElement("div");
+  userEmailField.className = "form-field";
+  const userEmailLabel = document.createElement("label");
+  userEmailLabel.textContent = "Email";
+  const userEmailInput = document.createElement("input");
+  userEmailInput.type = "email";
+  userEmailInput.autocomplete = "email";
+  userEmailField.append(userEmailLabel, userEmailInput);
+  const userIdField = document.createElement("div");
+  userIdField.className = "form-field";
+  const userIdLabel = document.createElement("label");
+  userIdLabel.textContent = "User ID";
+  const userIdInput = document.createElement("input");
+  userIdInput.type = "text";
+  userIdInput.placeholder = "UUID";
+  userIdField.append(userIdLabel, userIdInput);
+  const userError = document.createElement("div");
+  userError.className = "error";
+  const userStatus = document.createElement("div");
+  userStatus.className = "hint";
+  const userSubmit = document.createElement("button");
+  userSubmit.type = "submit";
+  userSubmit.className = "button";
+  userSubmit.textContent = "Lookup user";
+  userForm.append(
+    userEmailField,
+    userIdField,
+    userError,
+    userStatus,
+    userSubmit
+  );
+  const userResults = document.createElement("div");
+  userResults.className = "results-block";
+  userForm.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    userError.textContent = "";
+    userStatus.textContent = "";
+    userResults.innerHTML = "";
+    if (!adminInspectUser) {
+      userError.textContent = "Admin tooling not available.";
+      return;
+    }
+    const email = userEmailInput.value.trim();
+    const userId = userIdInput.value.trim();
+    if (!email && !userId) {
+      userError.textContent = "Provide an email or user ID.";
+      return;
+    }
+    userSubmit.disabled = true;
+    userSubmit.textContent = "Loading...";
+    try {
+      const results = await adminInspectUser({
+        baseUrl: config.baseUrl,
+        anonKey: config.anonKey,
+        accessToken: session.accessToken,
+        email: email || null,
+        userId: userId || null,
+      });
+      const rows = (results ?? []).map((row) => [
+        row.user_id,
+        row.email,
+        row.org_id,
+        row.role,
+        row.org_not_set ? "Yes" : "No",
+        row.membership_count,
+      ]);
+      renderResultTable(
+        userResults,
+        ["User ID", "Email", "Org ID", "Role", "Org not set", "Org count"],
+        rows
+      );
+    } catch (error) {
+      userError.textContent = "Platform admin access required or lookup failed.";
+    } finally {
+      userSubmit.disabled = false;
+      userSubmit.textContent = "Lookup user";
+    }
+  });
+  userPanel.append(userHeading, userHint, userForm, userResults);
+
+  const orgPanel = document.createElement("section");
+  orgPanel.className = "panel";
+  const orgHeading = document.createElement("h2");
+  orgHeading.textContent = "Org Inspection";
+  const orgHint = document.createElement("p");
+  orgHint.className = "hint";
+  orgHint.textContent =
+    "Check member/case counts and anomaly flags for an org (platform admin only).";
+  const orgForm = document.createElement("form");
+  orgForm.className = "form-grid";
+  const orgField = document.createElement("div");
+  orgField.className = "form-field";
+  const orgLabel = document.createElement("label");
+  orgLabel.textContent = "Org ID";
+  const orgInput = document.createElement("input");
+  orgInput.type = "text";
+  orgInput.placeholder = "UUID";
+  orgField.append(orgLabel, orgInput);
+  const orgError = document.createElement("div");
+  orgError.className = "error";
+  const orgStatus = document.createElement("div");
+  orgStatus.className = "hint";
+  const orgSubmit = document.createElement("button");
+  orgSubmit.type = "submit";
+  orgSubmit.className = "button";
+  orgSubmit.textContent = "Lookup org";
+  orgForm.append(orgField, orgError, orgStatus, orgSubmit);
+  const orgResults = document.createElement("div");
+  orgResults.className = "results-block";
+  orgForm.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    orgError.textContent = "";
+    orgStatus.textContent = "";
+    orgResults.innerHTML = "";
+    if (!adminInspectOrg) {
+      orgError.textContent = "Admin tooling not available.";
+      return;
+    }
+    const orgId = orgInput.value.trim();
+    if (!orgId) {
+      orgError.textContent = "Provide an org ID.";
+      return;
+    }
+    orgSubmit.disabled = true;
+    orgSubmit.textContent = "Loading...";
+    try {
+      const results = await adminInspectOrg({
+        baseUrl: config.baseUrl,
+        anonKey: config.anonKey,
+        accessToken: session.accessToken,
+        orgId,
+      });
+      const record = results?.[0];
+      if (!record) {
+        orgStatus.textContent = "No org data returned.";
+      } else {
+        renderKeyValueGrid(orgResults, [
+          { label: "Org ID", value: record.org_id },
+          { label: "Member count", value: record.member_count },
+          { label: "Case count", value: record.case_count },
+          {
+            label: "Cases but no members",
+            value: record.cases_without_members ? "Yes" : "No",
+          },
+          {
+            label: "Members but no cases",
+            value: record.members_without_cases ? "Yes" : "No",
+          },
+        ]);
+      }
+    } catch (error) {
+      orgError.textContent = "Platform admin access required or lookup failed.";
+    } finally {
+      orgSubmit.disabled = false;
+      orgSubmit.textContent = "Lookup org";
+    }
+  });
+  orgPanel.append(orgHeading, orgHint, orgForm, orgResults);
+
+  const accessPanel = document.createElement("section");
+  accessPanel.className = "panel";
+  const accessHeading = document.createElement("h2");
+  accessHeading.textContent = "Access Reasoning";
+  const accessHint = document.createElement("p");
+  accessHint.className = "hint";
+  accessHint.textContent =
+    "Check whether a user can see a case and why (case_not_found means no case exists).";
+  const accessForm = document.createElement("form");
+  accessForm.className = "form-grid";
+  const accessUserField = document.createElement("div");
+  accessUserField.className = "form-field";
+  const accessUserLabel = document.createElement("label");
+  accessUserLabel.textContent = "User ID";
+  const accessUserInput = document.createElement("input");
+  accessUserInput.type = "text";
+  accessUserInput.placeholder = "UUID";
+  accessUserField.append(accessUserLabel, accessUserInput);
+  const accessCaseField = document.createElement("div");
+  accessCaseField.className = "form-field";
+  const accessCaseLabel = document.createElement("label");
+  accessCaseLabel.textContent = "Case ID";
+  const accessCaseInput = document.createElement("input");
+  accessCaseInput.type = "text";
+  accessCaseInput.placeholder = "UUID";
+  accessCaseField.append(accessCaseLabel, accessCaseInput);
+  const accessError = document.createElement("div");
+  accessError.className = "error";
+  const accessStatus = document.createElement("div");
+  accessStatus.className = "hint";
+  const accessSubmit = document.createElement("button");
+  accessSubmit.type = "submit";
+  accessSubmit.className = "button";
+  accessSubmit.textContent = "Check access";
+  accessForm.append(
+    accessUserField,
+    accessCaseField,
+    accessError,
+    accessStatus,
+    accessSubmit
+  );
+  const accessResults = document.createElement("div");
+  accessResults.className = "results-block";
+  accessForm.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    accessError.textContent = "";
+    accessStatus.textContent = "";
+    accessResults.innerHTML = "";
+    if (!adminAccessCheck) {
+      accessError.textContent = "Admin tooling not available.";
+      return;
+    }
+    const userId = accessUserInput.value.trim();
+    const caseId = accessCaseInput.value.trim();
+    if (!userId || !caseId) {
+      accessError.textContent = "Provide both user ID and case ID.";
+      return;
+    }
+    accessSubmit.disabled = true;
+    accessSubmit.textContent = "Loading...";
+    try {
+      const results = await adminAccessCheck({
+        baseUrl: config.baseUrl,
+        anonKey: config.anonKey,
+        accessToken: session.accessToken,
+        userId,
+        caseId,
+      });
+      const record = results?.[0];
+      if (!record) {
+        accessStatus.textContent = "No access details returned.";
+      } else {
+        renderKeyValueGrid(accessResults, [
+          { label: "User ID", value: record.user_id },
+          { label: "Case ID", value: record.case_id },
+          { label: "Case org ID", value: record.case_org_id },
+          { label: "Visible", value: record.is_visible ? "Yes" : "No" },
+          { label: "Reason", value: record.reason },
+        ]);
+      }
+    } catch (error) {
+      accessError.textContent = "Platform admin access required or lookup failed.";
+    } finally {
+      accessSubmit.disabled = false;
+      accessSubmit.textContent = "Check access";
+    }
+  });
+  accessPanel.append(accessHeading, accessHint, accessForm, accessResults);
+
+  const reportingPanel = document.createElement("section");
+  reportingPanel.className = "panel";
+  const reportingHeading = document.createElement("h2");
+  reportingHeading.textContent = "Reporting Sanity";
+  const reportingHint = document.createElement("p");
+  reportingHint.className = "hint";
+  reportingHint.textContent =
+    "Compare reporting rows to org case counts (platform admin only).";
+  const reportingForm = document.createElement("form");
+  reportingForm.className = "form-grid";
+  const reportingField = document.createElement("div");
+  reportingField.className = "form-field";
+  const reportingLabel = document.createElement("label");
+  reportingLabel.textContent = "Org ID";
+  const reportingInput = document.createElement("input");
+  reportingInput.type = "text";
+  reportingInput.placeholder = "UUID";
+  reportingField.append(reportingLabel, reportingInput);
+  const reportingError = document.createElement("div");
+  reportingError.className = "error";
+  const reportingStatus = document.createElement("div");
+  reportingStatus.className = "hint";
+  const reportingSubmit = document.createElement("button");
+  reportingSubmit.type = "submit";
+  reportingSubmit.className = "button";
+  reportingSubmit.textContent = "Check reporting";
+  reportingForm.append(
+    reportingField,
+    reportingError,
+    reportingStatus,
+    reportingSubmit
+  );
+  const reportingResults = document.createElement("div");
+  reportingResults.className = "results-block";
+  reportingForm.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    reportingError.textContent = "";
+    reportingStatus.textContent = "";
+    reportingResults.innerHTML = "";
+    if (!adminReportingSanity) {
+      reportingError.textContent = "Admin tooling not available.";
+      return;
+    }
+    const orgId = reportingInput.value.trim();
+    if (!orgId) {
+      reportingError.textContent = "Provide an org ID.";
+      return;
+    }
+    reportingSubmit.disabled = true;
+    reportingSubmit.textContent = "Loading...";
+    try {
+      const results = await adminReportingSanity({
+        baseUrl: config.baseUrl,
+        anonKey: config.anonKey,
+        accessToken: session.accessToken,
+        orgId,
+      });
+      const record = results?.[0];
+      if (!record) {
+        reportingStatus.textContent = "No reporting data returned.";
+      } else {
+        renderKeyValueGrid(reportingResults, [
+          { label: "Org ID", value: record.org_id },
+          { label: "Case count", value: record.case_count },
+          {
+            label: "Reporting SLA rows",
+            value: record.reporting_case_sla_count,
+          },
+          {
+            label: "Reporting escalation rows",
+            value: record.reporting_case_escalation_count,
+          },
+          { label: "Reporting empty", value: record.reporting_empty ? "Yes" : "No" },
+          { label: "Empty reason", value: record.reporting_empty_reason },
+        ]);
+      }
+    } catch (error) {
+      reportingError.textContent = "Platform admin access required or lookup failed.";
+    } finally {
+      reportingSubmit.disabled = false;
+      reportingSubmit.textContent = "Check reporting";
+    }
+  });
+  reportingPanel.append(
+    reportingHeading,
+    reportingHint,
+    reportingForm,
+    reportingResults
+  );
+
+  main.append(userPanel, orgPanel, accessPanel, reportingPanel);
+  container.appendChild(shell);
+}
+
 function renderCaseList(container, session, config) {
   const { shell, main } = buildShell({
     title: "Case List",
@@ -396,6 +827,9 @@ function renderCaseList(container, session, config) {
   const header = document.createElement("div");
   header.className = "case-list__meta";
 
+  const titleBlock = document.createElement("div");
+  titleBlock.className = "case-list__title";
+
   const heading = document.createElement("h1");
   heading.textContent = "Case List";
 
@@ -403,7 +837,16 @@ function renderCaseList(container, session, config) {
   note.className = "hint";
   note.textContent = "Read-only view of cases you can access.";
 
-  header.append(heading, note);
+  titleBlock.append(heading, note);
+
+  const adminButton = document.createElement("button");
+  adminButton.className = "button secondary";
+  adminButton.textContent = "Admin Inspection";
+  adminButton.addEventListener("click", () => {
+    navigate("#/admin");
+  });
+
+  header.append(titleBlock, adminButton);
   panel.appendChild(header);
 
   const status = document.createElement("div");
@@ -563,6 +1006,11 @@ async function renderRoute() {
 
   if (hash === "#/cases") {
     renderCaseList(appRoot, session, config);
+    return;
+  }
+
+  if (hash === "#/admin") {
+    renderAdminInspection(appRoot, session, config);
     return;
   }
 
