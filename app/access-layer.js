@@ -135,6 +135,26 @@ function signInWithPassword({ baseUrl, anonKey, email, password }) {
   });
 }
 
+
+function refreshSession({ baseUrl, anonKey, refreshToken }) {
+  if (!refreshToken) {
+    throw new Error("refreshToken is required");
+  }
+
+  return authRequest({
+    baseUrl,
+    anonKey,
+    path: "/auth/v1/token",
+    method: "POST",
+    query: {
+      grant_type: "refresh_token",
+    },
+    body: {
+      refresh_token: refreshToken,
+    },
+  });
+}
+
 function getAuthUser({ baseUrl, anonKey, accessToken }) {
   if (!accessToken) {
     throw new Error("accessToken is required");
@@ -292,6 +312,7 @@ const accessLayer = {
   adminAccessCheck,
   adminReportingSanity,
   signInWithPassword,
+  refreshSession,
   getAuthUser,
 };
 
