@@ -22,9 +22,13 @@ returns table (
   org_id uuid,
   role text,
   org_count integer,
+
   org_not_set boolean,
   error_code text,
   error_message text
+
+  org_not_set boolean
+
 )
 language plpgsql
 security definer
@@ -38,6 +42,7 @@ begin
   if p_email is null and p_user_id is null then
     raise exception 'email or user_id required';
   end if;
+
 
   begin
     return query
@@ -88,6 +93,37 @@ begin
         SQLSTATE::text as error_code,
         left(SQLERRM, 200)::text as error_message;
   end;
+
+  return query
+  with target_user as (
+    select auth.users.id, auth.users.email
+    from auth.users
+    where (p_user_id is null or auth.users.id = p_user_id)
+      and (p_email is null or lower(auth.users.email) = lower(p_email))
+    limit 1
+  ),
+  membership as (
+    select org_members.org_id, org_members.role
+    from org_members
+    join target_user on org_members.user_id = target_user.id
+  ),
+  counts as (
+    select count(*)::int as membership_count
+    from membership
+  )
+  select
+    target_user.id,
+    target_user.email,
+    coalesce((au.raw_app_meta_data ->> 'platform_admin')::boolean, false) as is_platform_admin,
+    membership.org_id,
+    membership.role,
+    counts.membership_count as org_count,
+    counts.membership_count = 0 as org_not_set
+  from target_user
+  join auth.users as au on au.id = target_user.id
+  left join membership on true
+  cross join counts;
+
 end;
 $$;
 

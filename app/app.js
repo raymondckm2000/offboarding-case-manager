@@ -579,12 +579,15 @@ function renderAdminInspection(container, session, config) {
         userStatus.textContent = "Not found.";
         return;
       }
+
       if (firstRow.error_code || firstRow.error_message) {
         userError.textContent = `[${firstRow.error_code ?? "UNKNOWN"}] ${
           firstRow.error_message ?? "Unknown admin_inspect_user error"
         }`;
         return;
       }
+
+
       renderKeyValueGrid(userResults, [
         { label: "User ID", value: firstRow.user_id },
         { label: "Email", value: firstRow.email },
