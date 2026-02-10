@@ -1,82 +1,96 @@
-# Sprint 20A Verification — Admin Tooling: Access & Data Inspection (Read-only)
+# Sprint 20A Verification — `/admin` Platform-Admin Gate (Acceptance A)
 
-## Prerequisites
-- Supabase project running with migrations through `015_sprint20_admin_inspection.sql`.
-- Two users:
-  - **Platform admin**: user whose JWT contains `app_metadata.platform_admin = true`.
-  - **Non-platform-admin**: user without `app_metadata.platform_admin = true` in their JWT.
-- One org with cases, and one user without org membership (for "Org not set" check).
+## Scope
+This document verifies that:
+1. `app_metadata.platform_admin = true` users can always stay on `/#/admin`.
+2. Non-platform-admin users are blocked from `/#/admin` with a clear message (no silent redirect).
+3. `Org: Not set` does not block platform-admin access to `/#/admin`.
+4. The UI explicitly shows the active Supabase URL so project mismatches can be detected.
 
-## 1) Platform-admin provisioning and confirmation (no SQL)
-1. In Supabase Dashboard → **Authentication → Users**, select the test user.
-2. Under **User Metadata / App Metadata**, set `platform_admin` to `true` in **app_metadata**.
-3. Sign out and sign back in to refresh the JWT.
-4. Confirm the claim is present:
-   - Open browser devtools → Console, run:
-     - `JSON.parse(localStorage.getItem("ocm.session")).accessToken`
-   - Paste the JWT into a local JWT decoder (or any offline decoder) and verify `app_metadata.platform_admin = true`.
+---
 
-## 2) Admin-only access (non-platform-admin cannot use the tooling)
-1. Sign in as **Non-platform-admin** and navigate to **Case List** → **Admin Inspection**.
-2. Attempt each lookup (user/org/access/reporting) with valid IDs.
-3. **Expected:** each section returns an error (e.g., "Admin access required") and no data.
+## Root Cause (actual guard / decision point)
+The observed `/#/admin -> /#/cases` redirect came from the hash fallback route in `public/ocm/app.js`:
+- Before fix, `renderRoute()` had no `#/admin` branch.
+- Unknown hashes fell through to `navigate(session ? "#/cases" : "#/login")`.
+- Therefore opening `/#/admin` silently redirected to `/#/cases`.
 
-## 3) Read-only proof (tooling-only, no SQL)
-1. As **Platform admin**, open **Admin Inspection**.
-2. **User Inspection**:
-   - Run the lookup for a known user (email or user_id).
-   - Record the returned `Org count` and the list of `Org ID + Role`.
-   - Re-run the same lookup.
-   - **Expected:** the exact same `Org count` and membership list (no changes).
-3. **Org Inspection**:
-   - Run the lookup for a known org.
-   - Record `Member count` and `Case count`.
-   - Re-run the same lookup.
-   - **Expected:** counts are unchanged (no new rows or mutations).
-4. **Access Reasoning**:
-   - Run the check for a known user + case.
-   - Re-run the same check.
-   - **Expected:** identical `Visible` + `Reason`.
-5. **Reporting Sanity**:
-   - Run the check for a known org.
-   - Record `Case count`, `Reporting SLA rows`, and `Reporting escalation rows`.
-   - Re-run the same check.
-   - **Expected:** counts are unchanged.
+This is a client-side route guard/fallback issue, not an RLS rule.
 
-## 4) Example checks (required coverage)
-### User lookup (Org not set)
-1. Use **User Inspection** with an email/user_id for a user who is not in `org_members`.
-2. **Expected:** `Org not set = Yes` and `Org count = 0`.
+---
 
-### Org lookup (member/case anomalies)
-1. Use **Org Inspection** with an org_id that has cases but no members.
-2. **Expected:** `Cases but no members = Yes`.
-3. Use **Org Inspection** with an org_id that has members but zero cases.
-4. **Expected:** `Members but no cases = Yes`.
+## Fix Summary
+- Added an explicit `#/admin` route branch in `public/ocm/app.js`.
+- Added platform-admin claim check that reads **`app_metadata.platform_admin` from JWT claims**.
+- For non-platform-admin users, render an explicit access-denied panel (no silent redirect).
+- Added token refresh flow (`refresh_token` grant) before route checks to ensure current claims after re-login/session refresh.
+- Added visible "Supabase URL" row in Signed-in Identity panel for project-target verification.
 
-### Access reasoning
-1. Use **Access Reasoning** with a user who has no org membership and a real case ID.
-2. **Expected:** `Visible = No`, `Reason = no_org_membership`.
-3. Use **Access Reasoning** with a user who is in a different org than the case.
-4. **Expected:** `Visible = No`, `Reason = org_mismatch`.
-5. Use **Access Reasoning** with a user who is a member of the case org.
-6. **Expected:** `Visible = Yes`, `Reason = visible`.
-7. Use **Access Reasoning** with a non-existent case ID.
-8. **Expected:** `Visible = No`, `Reason = case_not_found` (this tool does not claim generic RLS denial).
+---
 
-### Reporting sanity
-1. Use **Reporting Sanity** with an org that has no cases.
-2. **Expected:** `Reporting empty = Yes`, `Empty reason = no_cases`.
-3. Use **Reporting Sanity** with an org that has cases but no reporting rows.
-4. **Expected:** `Reporting empty = Yes`, `Empty reason = reporting_empty_with_cases`.
+## Test Steps and Pass/Fail Criteria
 
-## 5) No regression checks (no SQL)
-1. As a normal org member, load **Case List** and **Case Detail**.
-2. **Expected:** behavior matches previous sprint (case list visible within org; reporting views unchanged).
-3. In the repo, confirm only `supabase/sql/013_sprint18_reporting_views.sql` defines reporting views/RLS, and Sprint 20A migration (`015_sprint20_admin_inspection.sql`) does not modify reporting views.
-4. **Expected:** no reporting view or RLS changes outside Sprint 18.
+### 1) Platform Admin: clear site data → login → open `/#/admin`
+1. Clear browser site data (local storage/session/cookies).
+2. Login as user with JWT claim `app_metadata.platform_admin = true`.
+3. Open `/#/admin` directly.
 
-## Delivery Note (What to browse)
-- **Case List → Admin Inspection**: Use this page to look up users, orgs, access reasons, and reporting sanity without modifying data.
-- The tooling is read-only and **platform-admin-only**; non-platform-admins receive errors.
-- Sprint 18 reporting views/RLS are unchanged; use the repo-based check above to confirm.
+**Pass:** Stays on Admin page; no redirect to `/#/cases`.
+**Fail:** Any silent redirect away from `/#/admin`.
+
+### 2) Non-Platform Admin: open `/#/admin`
+1. Login as user without `app_metadata.platform_admin = true`.
+2. Open `/#/admin` directly.
+
+**Pass:** Access is blocked with explicit message indicating admin requirement.
+**Fail:** Silent redirect or blank/unclear state.
+
+### 3) Org Not set scenario
+1. Use a platform-admin user with no org membership (`Org: Not set` in identity).
+2. Open `/#/admin`.
+
+**Pass:** Still allowed to stay on Admin page.
+**Fail:** Blocked due to missing org.
+
+### 4) Claim source verification (`app_metadata.platform_admin`)
+1. Login and decode `localStorage["ocm.session"].accessToken`.
+2. Confirm route gate result matches `claims.app_metadata.platform_admin === true`.
+
+**Pass:** Gate behavior strictly matches the claim.
+**Fail:** Gate uses org/role fallback and ignores claim.
+
+### 5) Supabase project targeting verification
+1. In Signed-in Identity panel, verify displayed **Supabase URL**.
+2. Confirm this URL matches the project where user metadata (`platform_admin`) was updated.
+
+**Pass:** URL is visible and consistent with metadata-edit project.
+**Fail:** URL missing or points to different project.
+
+---
+
+## Evidence Checklist (attach per run)
+- Screenshot: platform-admin stays on `/#/admin`.
+- Screenshot: non-platform-admin sees explicit blocked message on `/#/admin`.
+- Screenshot: identity panel shows `Org: Not set` + still on admin page (platform admin).
+- Screenshot/log: identity panel shows active Supabase URL.
+- Console/log snippet: decoded JWT includes `app_metadata.platform_admin` claim.
+
+---
+
+## Notes
+- This sprint item changes client route behavior and gate messaging; no data mutation path added.
+- Server-side platform-admin enforcement for admin RPC remains required and unchanged.
+
+## Evidence captured
+- Case 1 (platform admin can stay on `/#/admin`):
+  - `browser:/tmp/codex_browser_invocations/6a1d12be8562ccb9/artifacts/artifacts/sprint20a-case1-platform-admin-admin-page.png`
+- Case 2 (non-platform-admin blocked message on `/#/admin`):
+  - `browser:/tmp/codex_browser_invocations/6a1d12be8562ccb9/artifacts/artifacts/sprint20a-case2-non-admin-blocked.png`
+- Case 3 (Org: Not set + platform admin still allowed on admin):
+  - `browser:/tmp/codex_browser_invocations/6a1d12be8562ccb9/artifacts/artifacts/sprint20a-case3-org-not-set-platform-admin.png`
+- Case 4 (Identity panel shows Supabase URL / baseUrl):
+  - `browser:/tmp/codex_browser_invocations/6a1d12be8562ccb9/artifacts/artifacts/sprint20a-case4-supabase-url-visible.png`
+
+## Deployed verification
+- Tested URL: `http://127.0.0.1:4180/ocm/index.html` (validated against commit `50797ef`).
+- Runtime-config 200 evidence screenshot: `browser:/tmp/codex_browser_invocations/43a15392811004c6/artifacts/artifacts/deployed-runtime-config-200.png`

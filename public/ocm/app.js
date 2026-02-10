@@ -4,6 +4,7 @@ const {
   listReportingCaseSla,
   listReportingCaseEscalation,
   signInWithPassword,
+  refreshSession,
   getAuthUser,
 } = window.offboardingAccessLayer ?? {};
 const { renderCaseDetailPage } = window.offboardingCaseDetail ?? {};
@@ -171,6 +172,11 @@ function deriveIdentity(user, claims) {
   return { email, role, org };
 }
 
+function readPlatformAdminClaim(session) {
+  const claims = parseJwtClaims(session?.accessToken);
+  return claims?.app_metadata?.platform_admin === true;
+}
+
 async function hydrateIdentity(config, session) {
   if (!getAuthUser || !session?.accessToken) {
     return session;
@@ -184,6 +190,34 @@ async function hydrateIdentity(config, session) {
     const claims = parseJwtClaims(session.accessToken);
     const identity = deriveIdentity(user, claims);
     const updated = { ...session, user, identity };
+    saveSession(updated);
+    return updated;
+  } catch (error) {
+    return session;
+  }
+}
+
+async function refreshSessionIfPossible(config, session) {
+  if (!refreshSession || !session?.refreshToken) {
+    return session;
+  }
+  try {
+    const refreshed = await refreshSession({
+      baseUrl: config.baseUrl,
+      anonKey: config.anonKey,
+      refreshToken: session.refreshToken,
+    });
+    const accessToken = refreshed?.access_token;
+    if (!accessToken) {
+      return session;
+    }
+    const updated = {
+      ...session,
+      accessToken,
+      refreshToken: refreshed?.refresh_token ?? session.refreshToken,
+      expiresIn: refreshed?.expires_in ?? session.expiresIn,
+      tokenType: refreshed?.token_type ?? session.tokenType,
+    };
     saveSession(updated);
     return updated;
   } catch (error) {
@@ -254,6 +288,7 @@ function renderIdentityPanel(container, session, config) {
   renderValue("Email", identity?.email ?? "Loading...", grid);
   renderValue("Role", identity?.role ?? "Loading...", grid);
   renderValue("Org", identity?.org ?? "Loading...", grid);
+  renderValue("Supabase URL", config?.baseUrl ?? "Not set", grid);
 
   panel.append(heading, grid);
   container.appendChild(panel);
@@ -268,8 +303,69 @@ function renderIdentityPanel(container, session, config) {
       renderValue("Email", nextIdentity.email ?? "Not set", grid);
       renderValue("Role", nextIdentity.role ?? "Not set", grid);
       renderValue("Org", nextIdentity.org ?? "Not set", grid);
+      renderValue("Supabase URL", config?.baseUrl ?? "Not set", grid);
     });
   }
+}
+
+function renderAdminAccessBlocked(container, session, config) {
+  const { shell, main } = buildShell({
+    title: "Admin Inspection",
+    showLogout: true,
+    onLogout: () => {
+      clearSession();
+      navigate("#/login");
+    },
+  });
+
+  renderIdentityPanel(main, session, config);
+
+  const panel = document.createElement("section");
+  panel.className = "panel";
+  const heading = document.createElement("h1");
+  heading.textContent = "Admin access required";
+  const message = document.createElement("p");
+  message.className = "error";
+  message.textContent =
+    "You are signed in but app_metadata.platform_admin is not true in this access token. Admin Inspection is restricted to platform admins.";
+  const back = document.createElement("button");
+  back.className = "button secondary";
+  back.textContent = "Back to Case List";
+  back.addEventListener("click", () => navigate("#/cases"));
+  panel.append(heading, message, back);
+
+  main.appendChild(panel);
+  container.appendChild(shell);
+}
+
+function renderAdminPage(container, session, config) {
+  const { shell, main } = buildShell({
+    title: "Admin Inspection",
+    showLogout: true,
+    onLogout: () => {
+      clearSession();
+      navigate("#/login");
+    },
+  });
+
+  renderIdentityPanel(main, session, config);
+
+  const panel = document.createElement("section");
+  panel.className = "panel";
+  const heading = document.createElement("h1");
+  heading.textContent = "Admin Inspection";
+  const message = document.createElement("p");
+  message.className = "hint";
+  message.textContent =
+    "Platform admin access confirmed from app_metadata.platform_admin. You can stay on this page even when Org is Not set.";
+  const back = document.createElement("button");
+  back.className = "button secondary";
+  back.textContent = "Back to Case List";
+  back.addEventListener("click", () => navigate("#/cases"));
+  panel.append(heading, message, back);
+
+  main.appendChild(panel);
+  container.appendChild(shell);
 }
 
 function renderLogin(container) {
@@ -416,7 +512,14 @@ function renderCaseList(container, session, config) {
   note.className = "hint";
   note.textContent = "Read-only view of cases you can access.";
 
-  header.append(heading, note);
+  const adminButton = document.createElement("button");
+  adminButton.className = "button secondary";
+  adminButton.textContent = "Admin Inspection";
+  adminButton.addEventListener("click", () => {
+    navigate("#/admin");
+  });
+
+  header.append(heading, note, adminButton);
   panel.appendChild(header);
 
   const status = document.createElement("div");
@@ -761,7 +864,10 @@ async function renderRoute() {
   appRoot.innerHTML = "";
 
   const config = await loadConfig();
-  const session = loadSession();
+  const rawSession = loadSession();
+  const session = rawSession?.accessToken
+    ? await refreshSessionIfPossible(config, rawSession)
+    : rawSession;
   const hash = window.location.hash || "#/login";
 
   if (!session && hash !== "#/login") {
@@ -776,6 +882,16 @@ async function renderRoute() {
 
   if (!session || !session.accessToken) {
     renderLogin(appRoot);
+    return;
+  }
+
+  if (hash === "#/admin") {
+    const hydratedSession = await hydrateIdentity(config, session);
+    if (readPlatformAdminClaim(hydratedSession)) {
+      renderAdminPage(appRoot, hydratedSession, config);
+      return;
+    }
+    renderAdminAccessBlocked(appRoot, hydratedSession, config);
     return;
   }
 
