@@ -16,9 +16,10 @@ create or replace function admin_inspect_user(
 returns table (
   user_id uuid,
   email text,
+  is_platform_admin boolean,
   org_id uuid,
   role text,
-  membership_count integer,
+  org_count integer,
   org_not_set boolean
 )
 language plpgsql
@@ -54,11 +55,13 @@ begin
   select
     target_user.id,
     target_user.email,
+    coalesce((au.raw_app_meta_data ->> 'platform_admin')::boolean, false) as is_platform_admin,
     membership.org_id,
     membership.role,
-    counts.membership_count,
+    counts.membership_count as org_count,
     counts.membership_count = 0 as org_not_set
   from target_user
+  join auth.users as au on au.id = target_user.id
   left join membership on true
   cross join counts;
 end;

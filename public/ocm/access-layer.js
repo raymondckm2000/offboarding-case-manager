@@ -267,6 +267,69 @@ function listAuditLogs({ baseUrl, anonKey, accessToken, caseId }) {
   });
 }
 
+
+function callRpc({ baseUrl, anonKey, accessToken, functionName, body }) {
+  return request({
+    baseUrl,
+    anonKey,
+    accessToken,
+    path: `/rest/v1/rpc/${functionName}`,
+    method: "POST",
+    body,
+  });
+}
+
+function adminInspectUser({ baseUrl, anonKey, accessToken, email, userId }) {
+  return callRpc({
+    baseUrl,
+    anonKey,
+    accessToken,
+    functionName: "admin_inspect_user",
+    body: {
+      p_email: email ?? null,
+      p_user_id: userId ?? null,
+    },
+  });
+}
+
+function adminInspectOrg({ baseUrl, anonKey, accessToken, orgId }) {
+  return callRpc({
+    baseUrl,
+    anonKey,
+    accessToken,
+    functionName: "admin_inspect_org",
+    body: {
+      p_org_id: orgId ?? null,
+    },
+  });
+}
+
+function adminAccessCheck({ baseUrl, anonKey, accessToken, userId, caseId }) {
+  return callRpc({
+    baseUrl,
+    anonKey,
+    accessToken,
+    functionName: "admin_access_check",
+    body: {
+      p_user_id: userId ?? null,
+      p_case_id: caseId ?? null,
+    },
+  });
+}
+
+function adminReportingSanity({ baseUrl, anonKey, accessToken, orgId }) {
+  return callRpc({
+    baseUrl,
+    anonKey,
+    accessToken,
+    functionName: "admin_reporting_sanity",
+    body: {
+      p_org_id: orgId ?? null,
+    },
+  });
+}
+
+
 const accessLayer = {
   listOffboardingCases,
   listTasks,
@@ -274,6 +337,10 @@ const accessLayer = {
   listReportingCaseSla,
   listReportingCaseEscalation,
   listAuditLogs,
+  adminInspectUser,
+  adminInspectOrg,
+  adminAccessCheck,
+  adminReportingSanity,
   signInWithPassword,
   getAuthUser,
 };
