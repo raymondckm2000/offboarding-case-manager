@@ -579,6 +579,15 @@ function renderAdminInspection(container, session, config) {
         userStatus.textContent = "Not found.";
         return;
       }
+
+      if (firstRow.error_code || firstRow.error_message) {
+        userError.textContent = `[${firstRow.error_code ?? "UNKNOWN"}] ${
+          firstRow.error_message ?? "Unknown admin_inspect_user error"
+        }`;
+        return;
+      }
+
+
       renderKeyValueGrid(userResults, [
         { label: "User ID", value: firstRow.user_id },
         { label: "Email", value: firstRow.email },
@@ -596,7 +605,15 @@ function renderAdminInspection(container, session, config) {
       userResults.appendChild(membershipsHeading);
       renderResultTable(userResults, ["Org ID", "Role"], memberships);
     } catch (error) {
+
+      if (error?.status === 401 || error?.status === 403) {
+        userError.textContent = "Platform admin access required or lookup failed.";
+      } else {
+        userError.textContent = "Lookup failed.";
+      }
+
       userError.textContent = "Platform admin access required or lookup failed.";
+
     } finally {
       userSubmit.disabled = false;
       userSubmit.textContent = "Lookup user";
