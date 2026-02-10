@@ -162,7 +162,23 @@ function deriveIdentity(user, claims) {
     claims?.org ??
     "Not set";
 
-  return { email, role, org };
+  return {
+    email,
+    role,
+    org,
+    platformAdmin:
+      user?.app_metadata?.platform_admin === true ||
+      claims?.app_metadata?.platform_admin === true,
+  };
+}
+
+function isPlatformAdminSession(session) {
+  const claims = parseJwtClaims(session?.accessToken);
+  return (
+    session?.user?.app_metadata?.platform_admin === true ||
+    session?.identity?.platformAdmin === true ||
+    claims?.app_metadata?.platform_admin === true
+  );
 }
 
 async function hydrateIdentity(config, session) {
@@ -439,6 +455,39 @@ function renderLogin(container) {
   container.appendChild(shell);
 }
 
+function renderAdminBlocked(container, session, config) {
+  const { shell, main } = buildShell({
+    title: "Admin Inspection",
+    showLogout: true,
+    onLogout: () => {
+      clearSession();
+      navigate("#/login");
+    },
+  });
+
+  renderIdentityPanel(main, session, config);
+
+  const panel = document.createElement("section");
+  panel.className = "panel";
+
+  const heading = document.createElement("h1");
+  heading.textContent = "Admin Inspection Blocked";
+
+  const message = document.createElement("p");
+  message.className = "error";
+  message.textContent =
+    "Access denied: only users with app_metadata.platform_admin = true can view Admin Inspection.";
+
+  const back = document.createElement("button");
+  back.className = "button secondary";
+  back.textContent = "Back to Case List";
+  back.addEventListener("click", () => navigate("#/cases"));
+
+  panel.append(heading, message, back);
+  main.appendChild(panel);
+  container.appendChild(shell);
+}
+
 function renderAdminInspection(container, session, config) {
   const { shell, main } = buildShell({
     title: "Admin Inspection (Platform Admin)",
@@ -464,7 +513,7 @@ function renderAdminInspection(container, session, config) {
   const userHint = document.createElement("p");
   userHint.className = "hint";
   userHint.textContent =
-    "Look up a user by email or user ID to see org membership and Org-not-set state (platform admin only).";
+    "Look up a user by email or user ID to inspect read-only identity and org memberships.";
   const userForm = document.createElement("form");
   userForm.className = "form-grid";
   const userEmailField = document.createElement("div");
@@ -525,21 +574,39 @@ function renderAdminInspection(container, session, config) {
         email: email || null,
         userId: userId || null,
       });
-      const rows = (results ?? []).map((row) => [
-        row.user_id,
-        row.email,
-        row.org_id,
-        row.role,
-        row.org_not_set ? "Yes" : "No",
-        row.membership_count,
+      const firstRow = results?.[0];
+      if (!firstRow) {
+        userStatus.textContent = "Not found.";
+        return;
+      }
+      if (firstRow.error_code || firstRow.error_message) {
+        userError.textContent = `[${firstRow.error_code ?? "UNKNOWN"}] ${
+          firstRow.error_message ?? "Unknown admin_inspect_user error"
+        }`;
+        return;
+      }
+      renderKeyValueGrid(userResults, [
+        { label: "User ID", value: firstRow.user_id },
+        { label: "Email", value: firstRow.email },
+        {
+          label: "Platform admin",
+          value: firstRow.is_platform_admin ? "true" : "false",
+        },
+        { label: "Org count", value: firstRow.org_count },
       ]);
-      renderResultTable(
-        userResults,
-        ["User ID", "Email", "Org ID", "Role", "Org not set", "Org count"],
-        rows
-      );
+      const memberships = (results ?? [])
+        .filter((row) => row.org_id)
+        .map((row) => [row.org_id, row.role]);
+      const membershipsHeading = document.createElement("h3");
+      membershipsHeading.textContent = "Org memberships";
+      userResults.appendChild(membershipsHeading);
+      renderResultTable(userResults, ["Org ID", "Role"], memberships);
     } catch (error) {
-      userError.textContent = "Platform admin access required or lookup failed.";
+      if (error?.status === 401 || error?.status === 403) {
+        userError.textContent = "Platform admin access required or lookup failed.";
+      } else {
+        userError.textContent = "Lookup failed.";
+      }
     } finally {
       userSubmit.disabled = false;
       userSubmit.textContent = "Lookup user";
@@ -554,7 +621,7 @@ function renderAdminInspection(container, session, config) {
   const orgHint = document.createElement("p");
   orgHint.className = "hint";
   orgHint.textContent =
-    "Check member/case counts and anomaly flags for an org (platform admin only).";
+    "Check read-only member/case counts and anomaly flags for an org.";
   const orgForm = document.createElement("form");
   orgForm.className = "form-grid";
   const orgField = document.createElement("div");
@@ -601,7 +668,7 @@ function renderAdminInspection(container, session, config) {
       });
       const record = results?.[0];
       if (!record) {
-        orgStatus.textContent = "No org data returned.";
+        orgStatus.textContent = "No org found.";
       } else {
         renderKeyValueGrid(orgResults, [
           { label: "Org ID", value: record.org_id },
@@ -702,7 +769,7 @@ function renderAdminInspection(container, session, config) {
           { label: "User ID", value: record.user_id },
           { label: "Case ID", value: record.case_id },
           { label: "Case org ID", value: record.case_org_id },
-          { label: "Visible", value: record.is_visible ? "Yes" : "No" },
+          { label: "Visible", value: record.is_visible ? "true" : "false" },
           { label: "Reason", value: record.reason },
         ]);
       }
@@ -722,7 +789,7 @@ function renderAdminInspection(container, session, config) {
   const reportingHint = document.createElement("p");
   reportingHint.className = "hint";
   reportingHint.textContent =
-    "Compare reporting rows to org case counts (platform admin only).";
+    "Compare read-only reporting rows to org case counts.";
   const reportingForm = document.createElement("form");
   reportingForm.className = "form-grid";
   const reportingField = document.createElement("div");
@@ -774,7 +841,7 @@ function renderAdminInspection(container, session, config) {
       });
       const record = results?.[0];
       if (!record) {
-        reportingStatus.textContent = "No reporting data returned.";
+        reportingStatus.textContent = "No org found.";
       } else {
         renderKeyValueGrid(reportingResults, [
           { label: "Org ID", value: record.org_id },
@@ -842,6 +909,12 @@ function renderCaseList(container, session, config) {
   const adminButton = document.createElement("button");
   adminButton.className = "button secondary";
   adminButton.textContent = "Admin Inspection";
+  const platformAdmin = isPlatformAdminSession(session);
+  if (!platformAdmin) {
+    adminButton.disabled = true;
+    adminButton.title =
+      "Only users with app_metadata.platform_admin = true can open Admin Inspection.";
+  }
   adminButton.addEventListener("click", () => {
     navigate("#/admin");
   });
@@ -1010,7 +1083,11 @@ async function renderRoute() {
   }
 
   if (hash === "#/admin") {
-    renderAdminInspection(appRoot, session, config);
+    if (isPlatformAdminSession(session)) {
+      renderAdminInspection(appRoot, session, config);
+    } else {
+      renderAdminBlocked(appRoot, session, config);
+    }
     return;
   }
 

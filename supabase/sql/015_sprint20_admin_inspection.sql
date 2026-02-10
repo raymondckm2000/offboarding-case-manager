@@ -9,6 +9,8 @@ as $$
   );
 $$;
 
+drop function if exists admin_inspect_user(text, uuid);
+
 create or replace function admin_inspect_user(
   p_email text default null,
   p_user_id uuid default null
@@ -16,10 +18,13 @@ create or replace function admin_inspect_user(
 returns table (
   user_id uuid,
   email text,
+  is_platform_admin boolean,
   org_id uuid,
   role text,
-  membership_count integer,
-  org_not_set boolean
+  org_count integer,
+  org_not_set boolean,
+  error_code text,
+  error_message text
 )
 language plpgsql
 security definer
@@ -34,33 +39,55 @@ begin
     raise exception 'email or user_id required';
   end if;
 
-  return query
-  with target_user as (
-    select auth.users.id, auth.users.email
-    from auth.users
-    where (p_user_id is null or auth.users.id = p_user_id)
-      and (p_email is null or lower(auth.users.email) = lower(p_email))
-    limit 1
-  ),
-  membership as (
-    select org_members.org_id, org_members.role
-    from org_members
-    join target_user on org_members.user_id = target_user.id
-  ),
-  counts as (
-    select count(*)::int as membership_count
-    from membership
-  )
-  select
-    target_user.id,
-    target_user.email,
-    membership.org_id,
-    membership.role,
-    counts.membership_count,
-    counts.membership_count = 0 as org_not_set
-  from target_user
-  left join membership on true
-  cross join counts;
+  begin
+    return query
+    with target_user as (
+      select auth.users.id, auth.users.email
+      from auth.users
+      where (p_user_id is null or auth.users.id = p_user_id)
+        and (p_email is null or lower(auth.users.email) = lower(p_email))
+      limit 1
+    ),
+    membership as (
+      select org_members.org_id, org_members.role
+      from org_members
+      join target_user on org_members.user_id = target_user.id
+    ),
+    counts as (
+      select count(*)::int as membership_count
+      from membership
+    )
+    select
+      target_user.id,
+      target_user.email,
+      case
+        when coalesce(lower(au.raw_app_meta_data ->> 'platform_admin'), '') in ('true', 't', '1', 'yes', 'y') then true
+        else false
+      end as is_platform_admin,
+      membership.org_id,
+      membership.role,
+      counts.membership_count as org_count,
+      counts.membership_count = 0 as org_not_set,
+      null::text as error_code,
+      null::text as error_message
+    from target_user
+    join auth.users as au on au.id = target_user.id
+    left join membership on true
+    cross join counts;
+  exception
+    when others then
+      return query
+      select
+        null::uuid as user_id,
+        null::text as email,
+        null::boolean as is_platform_admin,
+        null::uuid as org_id,
+        null::text as role,
+        null::integer as org_count,
+        null::boolean as org_not_set,
+        SQLSTATE::text as error_code,
+        left(SQLERRM, 200)::text as error_message;
+  end;
 end;
 $$;
 
