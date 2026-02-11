@@ -282,6 +282,25 @@ function adminReportingSanity({ baseUrl, anonKey, accessToken, orgId }) {
   });
 }
 
+function ownerAssignCaseReviewer({
+  baseUrl,
+  anonKey,
+  accessToken,
+  caseId,
+  reviewerUserId,
+}) {
+  return callRpc({
+    baseUrl,
+    anonKey,
+    accessToken,
+    functionName: "owner_assign_case_reviewer",
+    body: {
+      p_case_id: caseId ?? null,
+      p_reviewer_user_id: reviewerUserId ?? null,
+    },
+  });
+}
+
 const accessLayer = {
   listOffboardingCases,
   listTasks,
@@ -291,6 +310,7 @@ const accessLayer = {
   adminInspectOrg,
   adminAccessCheck,
   adminReportingSanity,
+  ownerAssignCaseReviewer,
   signInWithPassword,
   getAuthUser,
 };
