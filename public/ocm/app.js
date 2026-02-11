@@ -5,6 +5,7 @@ const {
   listReportingCaseEscalation,
   signInWithPassword,
   getAuthUser,
+  ownerAssignCaseReviewer,
 } = window.offboardingAccessLayer ?? {};
 const { renderCaseDetailPage } = window.offboardingCaseDetail ?? {};
 const { renderAuditTimelineSection } = window.offboardingAuditTimeline ?? {};
@@ -193,6 +194,36 @@ async function hydrateIdentity(config, session) {
 
 function navigate(hash) {
   window.location.hash = hash;
+}
+
+function isOwnerOrAdmin(session) {
+  const role = String(session?.identity?.role ?? "").toLowerCase();
+  return role === "owner" || role === "admin";
+}
+
+function getRpcErrorMessage(error) {
+  const details = [
+    error?.payload?.message,
+    error?.payload?.error_description,
+    error?.payload?.error,
+    error?.message,
+  ]
+    .find((item) => typeof item === "string" && item.trim().length > 0)
+    ?.toLowerCase();
+
+  if (!details) {
+    return "Request failed. Please try again.";
+  }
+  if (details.includes("case not found")) {
+    return "Not found: case not found.";
+  }
+  if (details.includes("access denied") || details.includes("insufficient") || details.includes("permission")) {
+    return "Access denied.";
+  }
+  if (details.includes("reviewer not in org") || details.includes("reviewer must")) {
+    return "reviewer not in org.";
+  }
+  return details;
 }
 
 function buildShell({ title, showLogout, onLogout }) {
@@ -440,7 +471,7 @@ function renderCaseList(container, session, config) {
       status.textContent = "";
       const thead = document.createElement("thead");
       const headRow = document.createElement("tr");
-      ["Case No", "Employee", "Status", "Last working day"].forEach((label) => {
+      ["Case No", "Employee", "Status", "Last working day", "Owner"].forEach((label) => {
         const th = document.createElement("th");
         th.textContent = label;
         headRow.appendChild(th);
@@ -472,7 +503,25 @@ function renderCaseList(container, session, config) {
           const lastDay = document.createElement("td");
           lastDay.textContent = record.last_working_day ?? "—";
 
-          row.append(caseNo, employee, statusCell, lastDay);
+          const ownerCell = document.createElement("td");
+          const ownerButton = document.createElement("button");
+          ownerButton.className = "button secondary";
+          ownerButton.textContent = "Owner";
+          const canAssign = isOwnerOrAdmin(session);
+          ownerButton.disabled = !canAssign;
+          if (!canAssign) {
+            ownerButton.title = "Only org owner/admin can assign reviewer.";
+          }
+          ownerButton.addEventListener("click", (event) => {
+            event.stopPropagation();
+            if (!canAssign) {
+              return;
+            }
+            navigate(`#/owner?case_id=${encodeURIComponent(record.id)}`);
+          });
+          ownerCell.appendChild(ownerButton);
+
+          row.append(caseNo, employee, statusCell, lastDay, ownerCell);
           tbody.appendChild(row);
         });
       }
@@ -546,6 +595,117 @@ function renderCaseDetail(container, session, config, caseId) {
       panel.textContent =
         "Unable to load case detail. Please check credentials.";
     });
+}
+
+function renderOwnerPage(container, session, config) {
+  const { shell, main } = buildShell({
+    title: "Owner Assign Reviewer",
+    showLogout: true,
+    onLogout: () => {
+      clearSession();
+      navigate("#/login");
+    },
+  });
+
+  renderIdentityPanel(main, session, config);
+
+  const back = document.createElement("button");
+  back.className = "button secondary";
+  back.textContent = "Back to Case List";
+  back.addEventListener("click", () => navigate("#/cases"));
+  main.appendChild(back);
+
+  const panel = document.createElement("section");
+  panel.className = "panel";
+
+  const heading = document.createElement("h1");
+  heading.textContent = "Owner Assign Reviewer";
+
+  const hint = document.createElement("p");
+  hint.className = "hint";
+  hint.textContent = "Owner/Admin only mutation path.";
+
+  const error = document.createElement("div");
+  error.className = "error";
+
+  const status = document.createElement("div");
+  status.className = "hint";
+
+  const form = document.createElement("form");
+  form.className = "form-grid";
+
+  const caseField = document.createElement("div");
+  caseField.className = "form-field";
+  const caseLabel = document.createElement("label");
+  caseLabel.textContent = "Case ID";
+  const caseInput = document.createElement("input");
+  caseInput.type = "text";
+  caseInput.required = true;
+  caseInput.autocomplete = "off";
+  caseInput.value = new URLSearchParams(window.location.hash.split("?")[1] ?? "").get("case_id") ?? "";
+  caseField.append(caseLabel, caseInput);
+
+  const reviewerField = document.createElement("div");
+  reviewerField.className = "form-field";
+  const reviewerLabel = document.createElement("label");
+  reviewerLabel.textContent = "Reviewer User ID";
+  const reviewerInput = document.createElement("input");
+  reviewerInput.type = "text";
+  reviewerInput.required = true;
+  reviewerInput.autocomplete = "off";
+  reviewerField.append(reviewerLabel, reviewerInput);
+
+  const submit = document.createElement("button");
+  submit.type = "submit";
+  submit.className = "button";
+  submit.textContent = "Assign reviewer";
+
+  form.append(caseField, reviewerField, error, status, submit);
+  panel.append(heading, hint, form);
+  main.appendChild(panel);
+  container.appendChild(shell);
+
+  if (!isOwnerOrAdmin(session)) {
+    status.textContent = "Access denied.";
+    submit.disabled = true;
+  }
+
+  form.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    error.textContent = "";
+    status.textContent = "";
+
+    if (!ownerAssignCaseReviewer) {
+      error.textContent = "Owner assignment API unavailable.";
+      return;
+    }
+
+    const caseId = caseInput.value.trim();
+    const reviewerUserId = reviewerInput.value.trim();
+    if (!caseId || !reviewerUserId) {
+      error.textContent = "case_id and reviewer_user_id are required.";
+      return;
+    }
+
+    submit.disabled = true;
+    submit.textContent = "Assigning...";
+
+    try {
+      await ownerAssignCaseReviewer({
+        baseUrl: config.baseUrl,
+        anonKey: config.anonKey,
+        accessToken: session.accessToken,
+        caseId,
+        reviewerUserId,
+      });
+      status.textContent = "Success: reviewer assigned.";
+    } catch (requestError) {
+      error.textContent = getRpcErrorMessage(requestError);
+    } finally {
+      submit.disabled = false;
+      submit.textContent = "Assign reviewer";
+    }
+  });
 }
 
 function renderOperationsDashboard(container, session, config) {
@@ -786,6 +946,11 @@ async function renderRoute() {
 
   if (hash === "#/dashboard") {
     renderOperationsDashboard(appRoot, session, config);
+    return;
+  }
+
+  if (hash.startsWith("#/owner")) {
+    renderOwnerPage(appRoot, session, config);
     return;
   }
 

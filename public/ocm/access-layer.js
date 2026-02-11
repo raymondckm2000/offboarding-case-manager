@@ -267,6 +267,33 @@ function listAuditLogs({ baseUrl, anonKey, accessToken, caseId }) {
   });
 }
 
+function ownerAssignCaseReviewer({
+  baseUrl,
+  anonKey,
+  accessToken,
+  caseId,
+  reviewerUserId,
+}) {
+  if (!caseId) {
+    throw new Error("caseId is required");
+  }
+  if (!reviewerUserId) {
+    throw new Error("reviewerUserId is required");
+  }
+
+  return request({
+    baseUrl,
+    anonKey,
+    accessToken,
+    path: "/rest/v1/rpc/owner_assign_case_reviewer",
+    method: "POST",
+    body: {
+      p_case_id: caseId,
+      p_reviewer_user_id: reviewerUserId,
+    },
+  });
+}
+
 const accessLayer = {
   listOffboardingCases,
   listTasks,
@@ -274,6 +301,7 @@ const accessLayer = {
   listReportingCaseSla,
   listReportingCaseEscalation,
   listAuditLogs,
+  ownerAssignCaseReviewer,
   signInWithPassword,
   getAuthUser,
 };
