@@ -9,7 +9,7 @@ const {
   adminReportingSanity,
   ownerAssignCaseReviewer,
   listManageableOrgs,
-  getCurrentIdentityMembership,
+  getCurrentOrgContext,
   searchUsersByEmail,
   listRoles,
   assignUserToOrg,
@@ -136,23 +136,26 @@ function buildIdentity(user, membership) {
   const role = membership?.role ?? "Not set";
   const org = membership?.org_name ?? "Not set";
 
-  return { email, role, org };
+  return { email, role, org, orgNotSet: !membership };
 }
 
 async function getIdentityMembership(config, accessToken) {
-  if (!getCurrentIdentityMembership || !accessToken) {
-    return null;
+  if (!getCurrentOrgContext || !accessToken) {
+    return { membership: null, error: null };
   }
 
   try {
-    const rows = await getCurrentIdentityMembership({
+    const rows = await getCurrentOrgContext({
       baseUrl: config.baseUrl,
       anonKey: config.anonKey,
       accessToken,
     });
-    return Array.isArray(rows) ? rows[0] ?? null : rows ?? null;
+    return {
+      membership: Array.isArray(rows) ? rows[0] ?? null : rows ?? null,
+      error: null,
+    };
   } catch (error) {
-    return null;
+    return { membership: null, error };
   }
 }
 
@@ -174,9 +177,9 @@ async function hydrateIdentity(config, session) {
     }
   }
 
-  const membership = await getIdentityMembership(config, session.accessToken);
+  const { membership, error: membershipError } = await getIdentityMembership(config, session.accessToken);
   const identity = buildIdentity(user, membership);
-  const updated = { ...session, user, membership, identity };
+  const updated = { ...session, user, membership, identity, membershipError };
   saveSession(updated);
   return updated;
 }
@@ -217,6 +220,9 @@ function getRpcErrorMessage(error) {
   }
   if (details.includes("invalid role")) {
     return "invalid role";
+  }
+  if (details.includes("multi-org not supported")) {
+    return "multi-org not supported";
   }
   if (details.includes("reviewer not in org") || details.includes("reviewer must")) {
     return "reviewer not in org.";
@@ -284,7 +290,21 @@ function renderIdentityPanel(container, session, config) {
   renderValue("Role", identity?.role ?? "Loading...", grid);
   renderValue("Org", identity?.org ?? "Loading...", grid);
 
-  panel.append(heading, grid);
+  const identityHint = document.createElement("div");
+  identityHint.className = "hint";
+
+  function renderIdentityHint(nextSession, nextIdentity) {
+    identityHint.textContent = "";
+    if (nextSession?.membershipError) {
+      identityHint.textContent = `Identity context error: ${getRpcErrorMessage(nextSession.membershipError)}.`;
+    } else if (nextIdentity?.orgNotSet) {
+      identityHint.textContent = "Org: Not set. Ask an org owner/admin to assign your membership.";
+    }
+  }
+
+  renderIdentityHint(session, identity);
+
+  panel.append(heading, grid, identityHint);
   container.appendChild(panel);
 
   if (!identity && session?.accessToken) {
@@ -297,6 +317,7 @@ function renderIdentityPanel(container, session, config) {
       renderValue("Email", nextIdentity.email ?? "Not set", grid);
       renderValue("Role", nextIdentity.role ?? "Not set", grid);
       renderValue("Org", nextIdentity.org ?? "Not set", grid);
+      renderIdentityHint(updated, nextIdentity);
     });
   }
 }
@@ -871,7 +892,7 @@ function renderAdminUsersPage(container, session, config) {
 
   const hint = document.createElement("p");
   hint.className = "hint";
-  hint.textContent = "Owner/Admin only. Select org, search by email, then assign role.";
+  hint.textContent = "Owner/Admin only. Single-org mode: assign role within your org.";
 
   const form = document.createElement("form");
   form.className = "form-grid";
@@ -880,9 +901,11 @@ function renderAdminUsersPage(container, session, config) {
   orgField.className = "form-field";
   const orgLabel = document.createElement("label");
   orgLabel.textContent = "Organization";
-  const orgSelect = document.createElement("select");
-  orgSelect.required = true;
-  orgField.append(orgLabel, orgSelect);
+  const orgDisplay = document.createElement("input");
+  orgDisplay.type = "text";
+  orgDisplay.readOnly = true;
+  orgDisplay.disabled = true;
+  orgField.append(orgLabel, orgDisplay);
 
   const emailField = document.createElement("div");
   emailField.className = "form-field";
@@ -968,18 +991,22 @@ function renderAdminUsersPage(container, session, config) {
       ]);
 
       if (!orgRows?.length) {
-        showPlaceholder(orgSelect, "No manageable orgs");
+        orgDisplay.value = "No manageable org";
         submit.disabled = true;
         return;
       }
 
-      setOptions(orgSelect, orgRows, (row) => {
-        const orgName = String(row.org_name ?? "").trim() || "(unnamed org)";
-        return {
-          value: row.org_id,
-          label: `${orgName} (${row.actor_role})`,
-        };
-      });
+      const currentOrgId = session?.membership?.org_id;
+      const ownOrg = (orgRows ?? []).find((row) => row.org_id === currentOrgId) ?? null;
+
+      if (!ownOrg) {
+        error.textContent = "Current org is not manageable by this account.";
+        submit.disabled = true;
+        return;
+      }
+
+      const orgName = String(ownOrg.org_name ?? "").trim() || "(unnamed org)";
+      orgDisplay.value = `${orgName} (${ownOrg.actor_role})`;
 
       const roles = (roleRows ?? []).filter((row) => ["owner", "admin", "member"].includes(row.role));
       if (!roles.length) {
@@ -1054,12 +1081,12 @@ function renderAdminUsersPage(container, session, config) {
       return;
     }
 
-    const orgId = orgSelect.value;
+    const orgId = session?.membership?.org_id ?? "";
     const userId = emailResults.value;
     const role = roleSelect.value;
 
     if (!orgId || !userId || !role) {
-      error.textContent = "Please select org, user email, and role.";
+      error.textContent = "Please select user email and role.";
       return;
     }
 
@@ -1084,7 +1111,10 @@ function renderAdminUsersPage(container, session, config) {
     }
   });
 
-  if (!isOwnerOrAdmin(session)) {
+  if (!session?.membership?.org_id) {
+    status.textContent = "Org not set. Role management is unavailable.";
+    submit.disabled = true;
+  } else if (!isOwnerOrAdmin(session)) {
     status.textContent = "Access denied.";
     submit.disabled = true;
   } else {
@@ -1135,9 +1165,15 @@ function renderCaseList(container, session, config) {
   const usersButton = document.createElement("button");
   usersButton.className = "button secondary";
   usersButton.textContent = "Manage Users";
-  usersButton.disabled = !isOwnerOrAdmin(session);
+  const canManageUsers = Boolean(session?.membership?.org_id) && isOwnerOrAdmin(session);
+  usersButton.disabled = !canManageUsers;
+  if (!session?.membership?.org_id) {
+    usersButton.title = "Org not set";
+  } else if (!isOwnerOrAdmin(session)) {
+    usersButton.title = "Owner/Admin only";
+  }
   usersButton.addEventListener("click", () => {
-    if (!isOwnerOrAdmin(session)) {
+    if (!canManageUsers) {
       return;
     }
     navigate("#/admin/users");

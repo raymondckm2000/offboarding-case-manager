@@ -315,14 +315,18 @@ function listManageableOrgs({ baseUrl, anonKey, accessToken }) {
   });
 }
 
-function getCurrentIdentityMembership({ baseUrl, anonKey, accessToken }) {
+function getCurrentOrgContext({ baseUrl, anonKey, accessToken }) {
   return callRpc({
     baseUrl,
     anonKey,
     accessToken,
-    functionName: "get_current_identity_membership",
+    functionName: "get_current_org_context",
     body: {},
   });
+}
+
+function getCurrentIdentityMembership({ baseUrl, anonKey, accessToken }) {
+  return getCurrentOrgContext({ baseUrl, anonKey, accessToken });
 }
 
 function searchUsersByEmail({ baseUrl, anonKey, accessToken, emailQuery }) {
@@ -370,6 +374,7 @@ const accessLayer = {
   listAuditLogs,
   ownerAssignCaseReviewer,
   listManageableOrgs,
+  getCurrentOrgContext,
   getCurrentIdentityMembership,
   searchUsersByEmail,
   listRoles,
