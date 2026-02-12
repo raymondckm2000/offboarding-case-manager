@@ -319,7 +319,15 @@ function renderIdentityPanel(container, session, config) {
     if (nextSession?.membershipError) {
       identityHint.textContent = `Identity context error: ${getRpcErrorMessage(nextSession.membershipError)}.`;
     } else if (nextIdentity?.orgNotSet) {
-      identityHint.textContent = "Org: Not set. Ask an org owner/admin to assign your membership.";
+      if (redeemInvite) {
+        identityHint.textContent = "Org: Not set. Ask an org owner/admin to assign your membership, then redeem invite code.";
+        const joinLink = document.createElement("a");
+        joinLink.href = "#/join";
+        joinLink.textContent = " Open join page.";
+        identityHint.appendChild(joinLink);
+      } else {
+        identityHint.textContent = "Org: Not set. Ask an org owner/admin to assign your membership.";
+      }
     }
   }
 
@@ -885,6 +893,97 @@ function renderRegister(container) {
   container.appendChild(shell);
 }
 
+
+function renderJoin(container, session, config) {
+  const { shell, main } = buildShell({
+    title: "Redeem Invite",
+    showLogout: true,
+    onLogout: () => {
+      clearSession();
+      navigate("#/login");
+    },
+  });
+
+  renderIdentityPanel(main, session, config);
+
+  const panel = document.createElement("section");
+  panel.className = "panel";
+
+  const heading = document.createElement("h1");
+  heading.textContent = "Join Organization";
+
+  const hint = document.createElement("p");
+  hint.className = "hint";
+  hint.textContent = "Already have an account? Enter invite code to redeem membership.";
+
+  const form = document.createElement("form");
+  form.className = "form-grid";
+
+  const codeField = document.createElement("div");
+  codeField.className = "form-field";
+  const codeLabel = document.createElement("label");
+  codeLabel.setAttribute("for", "join-code");
+  codeLabel.textContent = "Invite code";
+  const codeInput = document.createElement("input");
+  codeInput.id = "join-code";
+  codeInput.type = "text";
+  codeInput.required = true;
+  codeInput.autocomplete = "off";
+  codeField.append(codeLabel, codeInput);
+
+  const error = document.createElement("div");
+  error.className = "error";
+
+  const status = document.createElement("div");
+  status.className = "hint";
+
+  const submit = document.createElement("button");
+  submit.type = "submit";
+  submit.className = "button";
+  submit.textContent = "Redeem invite";
+
+  form.append(codeField, error, status, submit);
+  panel.append(heading, hint, form);
+  main.appendChild(panel);
+  container.appendChild(shell);
+
+  if (!redeemInvite) {
+    error.textContent = "Invite redeem API unavailable.";
+    submit.disabled = true;
+    return;
+  }
+
+  form.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    error.textContent = "";
+    status.textContent = "";
+    const code = codeInput.value.trim();
+    if (!code) {
+      error.textContent = "Invite code is required.";
+      return;
+    }
+
+    submit.disabled = true;
+    submit.textContent = "Redeeming...";
+    try {
+      await redeemInvite({
+        baseUrl: config.baseUrl,
+        anonKey: config.anonKey,
+        accessToken: session.accessToken,
+        code,
+      });
+      status.textContent = "Invite redeemed. Refreshing identity...";
+      await hydrateIdentity(config, session);
+      navigate("#/cases");
+    } catch (requestError) {
+      error.textContent = getRpcErrorMessage(requestError);
+    } finally {
+      submit.disabled = false;
+      submit.textContent = "Redeem invite";
+    }
+  });
+}
+
 function renderCaseList(container, session, config) {
   const { shell, main } = buildShell({
     title: "Case List",
@@ -1430,6 +1529,12 @@ async function renderRoute() {
   }
 
   const hydratedSession = await hydrateIdentity(config, session);
+
+
+  if (route === "#/join") {
+    renderJoin(appRoot, hydratedSession, config);
+    return;
+  }
 
   if (route === "#/cases") {
     renderCaseList(appRoot, hydratedSession, config);
