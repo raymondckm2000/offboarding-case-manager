@@ -132,6 +132,42 @@ function signInWithPassword({ baseUrl, anonKey, email, password }) {
       email,
       password,
     },
+  }).catch((error) => {
+    const message =
+      error?.payload?.error_description ??
+      error?.payload?.message ??
+      error?.payload?.error ??
+      error?.message ??
+      "Unable to sign in";
+    throw new Error(message);
+  });
+}
+
+function signUpWithPassword({ baseUrl, anonKey, email, password }) {
+  if (!email) {
+    throw new Error("email is required");
+  }
+  if (!password) {
+    throw new Error("password is required");
+  }
+
+  return authRequest({
+    baseUrl,
+    anonKey,
+    path: "/auth/v1/signup",
+    method: "POST",
+    body: {
+      email,
+      password,
+    },
+  }).catch((error) => {
+    const message =
+      error?.payload?.error_description ??
+      error?.payload?.message ??
+      error?.payload?.error ??
+      error?.message ??
+      "Unable to register";
+    throw new Error(message);
   });
 }
 
@@ -365,6 +401,18 @@ function assignUserToOrg({ baseUrl, anonKey, accessToken, userId, orgId, role })
   });
 }
 
+function redeemInvite({ baseUrl, anonKey, accessToken, code }) {
+  return callRpc({
+    baseUrl,
+    anonKey,
+    accessToken,
+    functionName: "redeem_invite",
+    body: {
+      p_code: code ?? null,
+    },
+  });
+}
+
 const accessLayer = {
   listOffboardingCases,
   listTasks,
@@ -380,7 +428,9 @@ const accessLayer = {
   listRoles,
   assignUserToOrg,
   signInWithPassword,
+  signUpWithPassword,
   getAuthUser,
+  redeemInvite,
 };
 
 if (typeof module !== "undefined" && module.exports) {

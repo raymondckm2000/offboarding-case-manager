@@ -4,7 +4,9 @@ const {
   listReportingCaseSla,
   listReportingCaseEscalation,
   signInWithPassword,
+  signUpWithPassword,
   getAuthUser,
+  redeemInvite,
   ownerAssignCaseReviewer,
   listManageableOrgs,
   getCurrentOrgContext,
@@ -194,6 +196,10 @@ function navigate(hash) {
   window.location.hash = hash;
 }
 
+function getHashRoute() {
+  return (window.location.hash || "#/login").split("?")[0];
+}
+
 function isOwnerOrAdmin(session) {
   const role = String(session?.membership?.role ?? "").toLowerCase();
   return role === "owner" || role === "admin";
@@ -232,6 +238,15 @@ function getRpcErrorMessage(error) {
   }
   if (details.includes("reviewer not in org") || details.includes("reviewer must")) {
     return "reviewer not in org.";
+  }
+  if (details.includes("expired")) {
+    return "Invite expired.";
+  }
+  if (details.includes("invalid code")) {
+    return "Invalid invite code.";
+  }
+  if (details.includes("already redeemed")) {
+    return "Invite already redeemed.";
   }
   return details;
 }
@@ -304,7 +319,15 @@ function renderIdentityPanel(container, session, config) {
     if (nextSession?.membershipError) {
       identityHint.textContent = `Identity context error: ${getRpcErrorMessage(nextSession.membershipError)}.`;
     } else if (nextIdentity?.orgNotSet) {
-      identityHint.textContent = "Org: Not set. Ask an org owner/admin to assign your membership.";
+      if (redeemInvite) {
+        identityHint.textContent = "Org: Not set. Ask an org owner/admin to assign your membership, then redeem invite code.";
+        const joinLink = document.createElement("a");
+        joinLink.href = "#/join";
+        joinLink.textContent = " Open join page.";
+        identityHint.appendChild(joinLink);
+      } else {
+        identityHint.textContent = "Org: Not set. Ask an org owner/admin to assign your membership.";
+      }
     }
   }
 
@@ -442,7 +465,11 @@ function renderLogin(container) {
     }
   });
 
-  panel.append(heading, hint, form);
+  const registerHint = document.createElement("p");
+  registerHint.className = "hint";
+  registerHint.innerHTML = `No account yet? <a href="#/register">Register</a>.`;
+
+  panel.append(heading, hint, form, registerHint);
   main.appendChild(panel);
   container.appendChild(shell);
 }
@@ -702,6 +729,258 @@ function renderAdminUsersPage(container, session, config) {
   } else {
     loadLookups();
   }
+}
+
+function renderRegister(container) {
+  const { shell, main } = buildShell({
+    title: "Offboarding Case Manager",
+    showLogout: false,
+  });
+
+  const panel = document.createElement("section");
+  panel.className = "panel";
+
+  const heading = document.createElement("h1");
+  heading.textContent = "Register";
+
+  const hint = document.createElement("p");
+  hint.className = "hint";
+  hint.textContent = "Create an account with email/password. Do not enter user ID or org ID.";
+
+  const form = document.createElement("form");
+  form.className = "form-grid";
+
+  function buildField(id, labelText, type, autocomplete, required = true) {
+    const field = document.createElement("div");
+    field.className = "form-field";
+    const label = document.createElement("label");
+    label.setAttribute("for", id);
+    label.textContent = labelText;
+    const input = document.createElement("input");
+    input.id = id;
+    input.type = type;
+    input.required = required;
+    if (autocomplete) {
+      input.autocomplete = autocomplete;
+    }
+    field.append(label, input);
+    return { field, input };
+  }
+
+  const emailField = buildField("register-email", "Email", "email", "email");
+  const passwordField = buildField("register-password", "Password", "password", "new-password");
+  const confirmField = buildField("register-confirm", "Confirm password", "password", "new-password");
+  const inviteField = buildField("register-invite", "Invite code (optional)", "text", "off", false);
+
+  const error = document.createElement("div");
+  error.className = "error";
+
+  const status = document.createElement("div");
+  status.className = "hint";
+
+  const submitButton = document.createElement("button");
+  submitButton.className = "button";
+  submitButton.type = "submit";
+  submitButton.textContent = "Register";
+
+  form.append(
+    emailField.field,
+    passwordField.field,
+    confirmField.field,
+    inviteField.field,
+    error,
+    status,
+    submitButton,
+  );
+
+  form.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    error.textContent = "";
+    status.textContent = "";
+
+    const email = emailField.input.value.trim();
+    const password = passwordField.input.value;
+    const confirmPassword = confirmField.input.value;
+    const inviteCode = inviteField.input.value.trim();
+
+    if (!email || !password || !confirmPassword) {
+      error.textContent = "Email, password, and confirm password are required.";
+      return;
+    }
+
+    if (password !== confirmPassword) {
+      error.textContent = "Confirm password does not match.";
+      return;
+    }
+
+    submitButton.disabled = true;
+    const previousText = submitButton.textContent;
+    submitButton.textContent = "Registering...";
+
+    try {
+      const config = await loadConfig();
+      if (!config.baseUrl || !config.anonKey) {
+        throw new Error("Supabase configuration missing");
+      }
+      if (!signUpWithPassword) {
+        throw new Error("Access layer not available");
+      }
+
+      const response = await signUpWithPassword({
+        baseUrl: config.baseUrl,
+        anonKey: config.anonKey,
+        email,
+        password,
+      });
+
+      const accessToken = response?.access_token ?? response?.session?.access_token ?? null;
+      const session = accessToken
+        ? {
+            accessToken,
+            refreshToken: response?.refresh_token ?? response?.session?.refresh_token ?? null,
+            expiresIn: response?.expires_in ?? response?.session?.expires_in ?? null,
+            tokenType: response?.token_type ?? response?.session?.token_type ?? "bearer",
+          }
+        : null;
+
+      if (session) {
+        saveSession(session);
+      }
+
+      if (inviteCode && session?.accessToken && redeemInvite) {
+        await redeemInvite({
+          baseUrl: config.baseUrl,
+          anonKey: config.anonKey,
+          accessToken: session.accessToken,
+          code: inviteCode,
+        });
+        const hydrated = await hydrateIdentity(config, session);
+        status.textContent = "Invite redeemed. Redirecting to case list...";
+        setTimeout(() => {
+          navigate(hydrated?.accessToken ? "#/cases" : "#/login");
+        }, 500);
+        return;
+      }
+
+      if (inviteCode && !session?.accessToken) {
+        status.textContent = "Registration success. Please verify email, then login to redeem invite code.";
+        setTimeout(() => navigate("#/login"), 1000);
+        return;
+      }
+
+      if (!session?.accessToken) {
+        status.textContent = "請到 email 完成驗證後再 login";
+        setTimeout(() => navigate("#/login"), 1000);
+        return;
+      }
+
+      status.textContent = "Registration success. Redirecting to login...";
+      setTimeout(() => navigate("#/login"), 500);
+    } catch (requestError) {
+      error.textContent = getRpcErrorMessage(requestError);
+    } finally {
+      submitButton.disabled = false;
+      submitButton.textContent = previousText;
+    }
+  });
+
+  const loginHint = document.createElement("p");
+  loginHint.className = "hint";
+  loginHint.innerHTML = `Already have an account? <a href="#/login">Back to login</a>.`;
+
+  panel.append(heading, hint, form, loginHint);
+  main.appendChild(panel);
+  container.appendChild(shell);
+}
+
+function renderJoin(container, session, config) {
+  const { shell, main } = buildShell({
+    title: "Redeem Invite",
+    showLogout: true,
+    onLogout: () => {
+      clearSession();
+      navigate("#/login");
+    },
+  });
+
+  renderIdentityPanel(main, session, config);
+
+  const panel = document.createElement("section");
+  panel.className = "panel";
+
+  const heading = document.createElement("h1");
+  heading.textContent = "Join Organization";
+
+  const hint = document.createElement("p");
+  hint.className = "hint";
+  hint.textContent = "Already have an account? Enter invite code to redeem membership.";
+
+  const form = document.createElement("form");
+  form.className = "form-grid";
+
+  const codeField = document.createElement("div");
+  codeField.className = "form-field";
+  const codeLabel = document.createElement("label");
+  codeLabel.setAttribute("for", "join-code");
+  codeLabel.textContent = "Invite code";
+  const codeInput = document.createElement("input");
+  codeInput.id = "join-code";
+  codeInput.type = "text";
+  codeInput.required = true;
+  codeInput.autocomplete = "off";
+  codeField.append(codeLabel, codeInput);
+
+  const error = document.createElement("div");
+  error.className = "error";
+
+  const status = document.createElement("div");
+  status.className = "hint";
+
+  const submit = document.createElement("button");
+  submit.type = "submit";
+  submit.className = "button";
+  submit.textContent = "Redeem invite";
+
+  form.append(codeField, error, status, submit);
+  panel.append(heading, hint, form);
+  main.appendChild(panel);
+  container.appendChild(shell);
+
+  if (!redeemInvite) {
+    error.textContent = "Invite redeem API unavailable.";
+    submit.disabled = true;
+    return;
+  }
+
+  form.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    error.textContent = "";
+    status.textContent = "";
+    const code = codeInput.value.trim();
+    if (!code) {
+      error.textContent = "Invite code is required.";
+      return;
+    }
+
+    submit.disabled = true;
+    submit.textContent = "Redeeming...";
+    try {
+      await redeemInvite({
+        baseUrl: config.baseUrl,
+        anonKey: config.anonKey,
+        accessToken: session.accessToken,
+        code,
+      });
+      status.textContent = "Invite redeemed. Refreshing identity...";
+      await hydrateIdentity(config, session);
+      navigate("#/cases");
+    } catch (requestError) {
+      error.textContent = getRpcErrorMessage(requestError);
+    } finally {
+      submit.disabled = false;
+      submit.textContent = "Redeem invite";
+    }
+  });
 }
 
 function renderCaseList(container, session, config) {
@@ -1226,15 +1505,20 @@ async function renderRoute() {
 
   const config = await loadConfig();
   const session = loadSession();
-  const hash = window.location.hash || "#/login";
+  const route = getHashRoute();
 
-  if (!session && hash !== "#/login") {
+  if (!session && route !== "#/login" && route !== "#/register") {
     navigate("#/login");
     return;
   }
 
-  if (hash === "#/login") {
+  if (route === "#/login") {
     renderLogin(appRoot);
+    return;
+  }
+
+  if (route === "#/register") {
+    renderRegister(appRoot);
     return;
   }
 
@@ -1245,28 +1529,33 @@ async function renderRoute() {
 
   const hydratedSession = await hydrateIdentity(config, session);
 
-  if (hash === "#/cases") {
+  if (route === "#/join") {
+    renderJoin(appRoot, hydratedSession, config);
+    return;
+  }
+
+  if (route === "#/cases") {
     renderCaseList(appRoot, hydratedSession, config);
     return;
   }
 
-  if (hash === "#/dashboard") {
+  if (route === "#/dashboard") {
     renderOperationsDashboard(appRoot, session, config);
     return;
   }
 
-  if (hash === "#/admin/users") {
+  if (route === "#/admin/users") {
     renderAdminUsersPage(appRoot, hydratedSession, config);
     return;
   }
 
-  if (hash.startsWith("#/owner")) {
+  if (route.startsWith("#/owner")) {
     renderOwnerPage(appRoot, hydratedSession, config);
     return;
   }
 
-  if (hash.startsWith("#/cases/")) {
-    const caseId = hash.replace("#/cases/", "");
+  if (route.startsWith("#/cases/")) {
+    const caseId = route.replace("#/cases/", "");
     renderCaseDetail(appRoot, hydratedSession, config, caseId);
     return;
   }
