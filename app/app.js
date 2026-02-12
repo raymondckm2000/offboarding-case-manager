@@ -9,6 +9,7 @@ const {
   adminReportingSanity,
   ownerAssignCaseReviewer,
   listManageableOrgs,
+  getCurrentIdentityMembership,
   searchUsersByEmail,
   listRoles,
   assignUserToOrg,
@@ -130,64 +131,54 @@ function clearSession() {
   window.localStorage.removeItem(SESSION_KEY);
 }
 
-function parseJwtClaims(token) {
-  if (!token || typeof token !== "string") {
-    return null;
-  }
-  const parts = token.split(".");
-  if (parts.length < 2) {
-    return null;
-  }
-  const payload = parts[1].replace(/-/g, "+").replace(/_/g, "/");
-  const padded = payload.padEnd(payload.length + ((4 - (payload.length % 4)) % 4), "=");
-  try {
-    const json = atob(padded);
-    return JSON.parse(json);
-  } catch (error) {
-    return null;
-  }
-}
-
-function deriveIdentity(user, claims) {
-  const email = user?.email ?? claims?.email ?? "Not set";
-  const role =
-    user?.role ??
-    user?.app_metadata?.role ??
-    user?.user_metadata?.role ??
-    claims?.role ??
-    claims?.app_metadata?.role ??
-    claims?.user_metadata?.role ??
-    "Not set";
-  const org =
-    user?.app_metadata?.org_id ??
-    user?.user_metadata?.org_id ??
-    user?.app_metadata?.org ??
-    user?.user_metadata?.org ??
-    claims?.org_id ??
-    claims?.org ??
-    "Not set";
+function buildIdentity(user, membership) {
+  const email = user?.email ?? "Not set";
+  const role = membership?.role ?? "Not set";
+  const org = membership?.org_name ?? "Not set";
 
   return { email, role, org };
 }
 
-async function hydrateIdentity(config, session) {
-  if (!getAuthUser || !session?.accessToken) {
-    return session;
+async function getIdentityMembership(config, accessToken) {
+  if (!getCurrentIdentityMembership || !accessToken) {
+    return null;
   }
+
   try {
-    const user = await getAuthUser({
+    const rows = await getCurrentIdentityMembership({
       baseUrl: config.baseUrl,
       anonKey: config.anonKey,
-      accessToken: session.accessToken,
+      accessToken,
     });
-    const claims = parseJwtClaims(session.accessToken);
-    const identity = deriveIdentity(user, claims);
-    const updated = { ...session, user, identity };
-    saveSession(updated);
-    return updated;
+    return Array.isArray(rows) ? rows[0] ?? null : rows ?? null;
   } catch (error) {
+    return null;
+  }
+}
+
+async function hydrateIdentity(config, session) {
+  if (!session?.accessToken) {
     return session;
   }
+
+  let user = session.user ?? null;
+  if (getAuthUser) {
+    try {
+      user = await getAuthUser({
+        baseUrl: config.baseUrl,
+        anonKey: config.anonKey,
+        accessToken: session.accessToken,
+      });
+    } catch (error) {
+      user = session.user ?? null;
+    }
+  }
+
+  const membership = await getIdentityMembership(config, session.accessToken);
+  const identity = buildIdentity(user, membership);
+  const updated = { ...session, user, membership, identity };
+  saveSession(updated);
+  return updated;
 }
 
 function navigate(hash) {
@@ -195,7 +186,7 @@ function navigate(hash) {
 }
 
 function isOwnerOrAdmin(session) {
-  const role = String(session?.identity?.role ?? "").toLowerCase();
+  const role = String(session?.membership?.role ?? "").toLowerCase();
   return role === "owner" || role === "admin";
 }
 
@@ -1441,29 +1432,31 @@ async function renderRoute() {
     return;
   }
 
+  const hydratedSession = await hydrateIdentity(config, session);
+
   if (hash === "#/cases") {
-    renderCaseList(appRoot, session, config);
+    renderCaseList(appRoot, hydratedSession, config);
     return;
   }
 
   if (hash === "#/admin") {
-    renderAdminInspection(appRoot, session, config);
+    renderAdminInspection(appRoot, hydratedSession, config);
     return;
   }
 
   if (hash === "#/admin/users") {
-    renderAdminUsersPage(appRoot, session, config);
+    renderAdminUsersPage(appRoot, hydratedSession, config);
     return;
   }
 
   if (hash.startsWith("#/owner")) {
-    renderOwnerPage(appRoot, session, config);
+    renderOwnerPage(appRoot, hydratedSession, config);
     return;
   }
 
   if (hash.startsWith("#/cases/")) {
     const caseId = hash.replace("#/cases/", "");
-    renderCaseDetail(appRoot, session, config, caseId);
+    renderCaseDetail(appRoot, hydratedSession, config, caseId);
     return;
   }
 

@@ -311,6 +311,16 @@ function listManageableOrgs({ baseUrl, anonKey, accessToken }) {
   });
 }
 
+function getCurrentIdentityMembership({ baseUrl, anonKey, accessToken }) {
+  return callRpc({
+    baseUrl,
+    anonKey,
+    accessToken,
+    functionName: "get_current_identity_membership",
+    body: {},
+  });
+}
+
 function searchUsersByEmail({ baseUrl, anonKey, accessToken, emailQuery }) {
   return callRpc({
     baseUrl,
@@ -358,6 +368,7 @@ const accessLayer = {
   adminReportingSanity,
   ownerAssignCaseReviewer,
   listManageableOrgs,
+  getCurrentIdentityMembership,
   searchUsersByEmail,
   listRoles,
   assignUserToOrg,
