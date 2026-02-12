@@ -680,6 +680,7 @@ function renderRegister(container) {
   loginHint.innerHTML = `Already have an account? <a href="#/login">Back to login</a>.`;
 
   panel.append(heading, hint, form, loginHint);
+
   main.appendChild(panel);
   container.appendChild(shell);
 }
@@ -734,6 +735,8 @@ function renderJoin(container, session, config) {
 
   form.append(codeField, error, status, submit);
   panel.append(heading, hint, form);
+
+
   main.appendChild(panel);
   container.appendChild(shell);
 
@@ -1754,10 +1757,13 @@ async function renderRoute() {
 
   const hydratedSession = await hydrateIdentity(config, session);
 
+
   if (route === "#/join") {
     renderJoin(appRoot, hydratedSession, config);
     return;
   }
+
+
 
   if (route === "#/cases") {
     renderCaseList(appRoot, hydratedSession, config);

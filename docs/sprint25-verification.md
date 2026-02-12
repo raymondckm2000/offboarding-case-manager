@@ -21,6 +21,7 @@
 3. Register as `new.user@example.com` with invite code in `#/register` (or login first and redeem through register flow when session exists).
 4. Expected result: invite is redeemed, membership is created/updated, and identity hydration reflects org/role immediately.
 
+
 ## Existing account redeem invite (Org Not set)
 1. Sign in as an existing account that currently has no org membership (`Org: Not set`).
 2. Navigate to `#/join` (or click the `Open join page.` link shown in the Signed-in Identity `Org: Not set` hint).

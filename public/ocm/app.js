@@ -893,6 +893,7 @@ function renderRegister(container) {
   container.appendChild(shell);
 }
 
+
 function renderJoin(container, session, config) {
   const { shell, main } = buildShell({
     title: "Redeem Invite",
@@ -1528,6 +1529,7 @@ async function renderRoute() {
   }
 
   const hydratedSession = await hydrateIdentity(config, session);
+
 
   if (route === "#/join") {
     renderJoin(appRoot, hydratedSession, config);
