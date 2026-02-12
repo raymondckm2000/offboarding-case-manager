@@ -301,6 +301,52 @@ function ownerAssignCaseReviewer({
   });
 }
 
+function listManageableOrgs({ baseUrl, anonKey, accessToken }) {
+  return callRpc({
+    baseUrl,
+    anonKey,
+    accessToken,
+    functionName: "list_manageable_orgs",
+    body: {},
+  });
+}
+
+function searchUsersByEmail({ baseUrl, anonKey, accessToken, emailQuery }) {
+  return callRpc({
+    baseUrl,
+    anonKey,
+    accessToken,
+    functionName: "search_users_by_email",
+    body: {
+      p_email_query: emailQuery ?? null,
+    },
+  });
+}
+
+function listRoles({ baseUrl, anonKey, accessToken }) {
+  return callRpc({
+    baseUrl,
+    anonKey,
+    accessToken,
+    functionName: "list_roles",
+    body: {},
+  });
+}
+
+function assignUserToOrg({ baseUrl, anonKey, accessToken, userId, orgId, role }) {
+  return callRpc({
+    baseUrl,
+    anonKey,
+    accessToken,
+    functionName: "assign_user_to_org",
+    body: {
+      p_user_id: userId ?? null,
+      p_org_id: orgId ?? null,
+      p_role: role ?? null,
+    },
+  });
+}
+
 const accessLayer = {
   listOffboardingCases,
   listTasks,
@@ -311,6 +357,10 @@ const accessLayer = {
   adminAccessCheck,
   adminReportingSanity,
   ownerAssignCaseReviewer,
+  listManageableOrgs,
+  searchUsersByEmail,
+  listRoles,
+  assignUserToOrg,
   signInWithPassword,
   getAuthUser,
 };

@@ -8,6 +8,10 @@ const {
   adminAccessCheck,
   adminReportingSanity,
   ownerAssignCaseReviewer,
+  listManageableOrgs,
+  searchUsersByEmail,
+  listRoles,
+  assignUserToOrg,
 } = window.offboardingAccessLayer ?? {};
 const { renderCaseDetailPage } = window.offboardingCaseDetail ?? {};
 
@@ -213,6 +217,15 @@ function getRpcErrorMessage(error) {
   }
   if (details.includes("access denied") || details.includes("insufficient") || details.includes("permission")) {
     return "Access denied.";
+  }
+  if (details.includes("user not found")) {
+    return "user not found";
+  }
+  if (details.includes("org not found")) {
+    return "org not found";
+  }
+  if (details.includes("invalid role")) {
+    return "invalid role";
   }
   if (details.includes("reviewer not in org") || details.includes("reviewer must")) {
     return "reviewer not in org.";
@@ -840,6 +853,254 @@ function renderAdminInspection(container, session, config) {
   container.appendChild(shell);
 }
 
+
+function renderAdminUsersPage(container, session, config) {
+  const { shell, main } = buildShell({
+    title: "Admin User Role Management",
+    showLogout: true,
+    onLogout: () => {
+      clearSession();
+      navigate("#/login");
+    },
+  });
+
+  renderIdentityPanel(main, session, config);
+
+  const back = document.createElement("button");
+  back.className = "button secondary";
+  back.textContent = "Back to Case List";
+  back.addEventListener("click", () => navigate("#/cases"));
+  main.appendChild(back);
+
+  const panel = document.createElement("section");
+  panel.className = "panel";
+
+  const heading = document.createElement("h1");
+  heading.textContent = "Assign User Role";
+
+  const hint = document.createElement("p");
+  hint.className = "hint";
+  hint.textContent = "Owner/Admin only. Select org, search by email, then assign role.";
+
+  const form = document.createElement("form");
+  form.className = "form-grid";
+
+  const orgField = document.createElement("div");
+  orgField.className = "form-field";
+  const orgLabel = document.createElement("label");
+  orgLabel.textContent = "Organization";
+  const orgSelect = document.createElement("select");
+  orgSelect.required = true;
+  orgField.append(orgLabel, orgSelect);
+
+  const emailField = document.createElement("div");
+  emailField.className = "form-field";
+  const emailLabel = document.createElement("label");
+  emailLabel.textContent = "User Email Search";
+  const emailInput = document.createElement("input");
+  emailInput.type = "search";
+  emailInput.placeholder = "Search email";
+  emailInput.autocomplete = "off";
+  const emailResults = document.createElement("select");
+  emailResults.required = true;
+  emailField.append(emailLabel, emailInput, emailResults);
+
+  const roleField = document.createElement("div");
+  roleField.className = "form-field";
+  const roleLabel = document.createElement("label");
+  roleLabel.textContent = "Role";
+  const roleSelect = document.createElement("select");
+  roleSelect.required = true;
+  roleField.append(roleLabel, roleSelect);
+
+  const error = document.createElement("div");
+  error.className = "error";
+  const status = document.createElement("div");
+  status.className = "hint";
+
+  const submit = document.createElement("button");
+  submit.type = "submit";
+  submit.className = "button";
+  submit.textContent = "Assign role";
+
+  form.append(orgField, emailField, roleField, error, status, submit);
+  panel.append(heading, hint, form);
+  main.appendChild(panel);
+  container.appendChild(shell);
+
+  const userOptions = [];
+  let searchTimer = null;
+
+  function setOptions(select, rows, mapFn) {
+    select.innerHTML = "";
+    rows.forEach((row, index) => {
+      const option = document.createElement("option");
+      const mapped = mapFn(row);
+      option.value = mapped.value;
+      option.textContent = mapped.label;
+      if (index === 0) {
+        option.selected = true;
+      }
+      select.appendChild(option);
+    });
+  }
+
+  function showPlaceholder(select, text) {
+    select.innerHTML = "";
+    const option = document.createElement("option");
+    option.value = "";
+    option.textContent = text;
+    option.selected = true;
+    option.disabled = true;
+    select.appendChild(option);
+  }
+
+  async function loadLookups() {
+    if (!listManageableOrgs || !listRoles) {
+      error.textContent = "Role management API unavailable.";
+      submit.disabled = true;
+      return;
+    }
+
+    try {
+      const [orgRows, roleRows] = await Promise.all([
+        listManageableOrgs({
+          baseUrl: config.baseUrl,
+          anonKey: config.anonKey,
+          accessToken: session.accessToken,
+        }),
+        listRoles({
+          baseUrl: config.baseUrl,
+          anonKey: config.anonKey,
+          accessToken: session.accessToken,
+        }),
+      ]);
+
+      if (!orgRows?.length) {
+        showPlaceholder(orgSelect, "No manageable orgs");
+        submit.disabled = true;
+        return;
+      }
+
+      setOptions(orgSelect, orgRows, (row) => {
+        const orgName = String(row.org_name ?? "").trim() || "(unnamed org)";
+        return {
+          value: row.org_id,
+          label: `${orgName} (${row.actor_role})`,
+        };
+      });
+
+      const roles = (roleRows ?? []).filter((row) => ["owner", "admin", "member"].includes(row.role));
+      if (!roles.length) {
+        showPlaceholder(roleSelect, "No roles");
+        submit.disabled = true;
+        return;
+      }
+
+      setOptions(roleSelect, roles, (row) => ({ value: row.role, label: row.role }));
+      showPlaceholder(emailResults, "Type email to search users");
+    } catch (lookupError) {
+      error.textContent = getRpcErrorMessage(lookupError);
+      submit.disabled = true;
+    }
+  }
+
+  async function runEmailSearch() {
+    const query = emailInput.value.trim();
+    if (!query) {
+      userOptions.splice(0, userOptions.length);
+      showPlaceholder(emailResults, "Type email to search users");
+      return;
+    }
+    if (!searchUsersByEmail) {
+      error.textContent = "User search API unavailable.";
+      return;
+    }
+
+    try {
+      error.textContent = "";
+      const rows = await searchUsersByEmail({
+        baseUrl: config.baseUrl,
+        anonKey: config.anonKey,
+        accessToken: session.accessToken,
+        emailQuery: query,
+      });
+      userOptions.splice(0, userOptions.length, ...(rows ?? []));
+      if (!userOptions.length) {
+        showPlaceholder(emailResults, "No users found");
+        return;
+      }
+      setOptions(emailResults, userOptions, (row) => {
+        const email = String(row.email ?? "").trim() || "(no email)";
+        return {
+          value: row.user_id,
+          label: email,
+        };
+      });
+    } catch (searchError) {
+      userOptions.splice(0, userOptions.length);
+      showPlaceholder(emailResults, "Search failed");
+      error.textContent = getRpcErrorMessage(searchError);
+    }
+  }
+
+  emailInput.addEventListener("input", () => {
+    if (searchTimer) {
+      window.clearTimeout(searchTimer);
+    }
+    searchTimer = window.setTimeout(() => {
+      runEmailSearch();
+    }, 250);
+  });
+
+  form.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    error.textContent = "";
+    status.textContent = "";
+
+    if (!assignUserToOrg) {
+      error.textContent = "Role assignment API unavailable.";
+      return;
+    }
+
+    const orgId = orgSelect.value;
+    const userId = emailResults.value;
+    const role = roleSelect.value;
+
+    if (!orgId || !userId || !role) {
+      error.textContent = "Please select org, user email, and role.";
+      return;
+    }
+
+    submit.disabled = true;
+    submit.textContent = "Assigning...";
+
+    try {
+      await assignUserToOrg({
+        baseUrl: config.baseUrl,
+        anonKey: config.anonKey,
+        accessToken: session.accessToken,
+        userId,
+        orgId,
+        role,
+      });
+      status.textContent = "Success: role assigned.";
+    } catch (requestError) {
+      error.textContent = getRpcErrorMessage(requestError);
+    } finally {
+      submit.disabled = false;
+      submit.textContent = "Assign role";
+    }
+  });
+
+  if (!isOwnerOrAdmin(session)) {
+    status.textContent = "Access denied.";
+    submit.disabled = true;
+  } else {
+    loadLookups();
+  }
+}
+
 function renderCaseList(container, session, config) {
   const { shell, main } = buildShell({
     title: "Case List",
@@ -870,6 +1131,9 @@ function renderCaseList(container, session, config) {
 
   titleBlock.append(heading, note);
 
+  const adminActions = document.createElement("div");
+  adminActions.className = "actions-inline";
+
   const adminButton = document.createElement("button");
   adminButton.className = "button secondary";
   adminButton.textContent = "Admin Inspection";
@@ -877,7 +1141,20 @@ function renderCaseList(container, session, config) {
     navigate("#/admin");
   });
 
-  header.append(titleBlock, adminButton);
+  const usersButton = document.createElement("button");
+  usersButton.className = "button secondary";
+  usersButton.textContent = "Manage Users";
+  usersButton.disabled = !isOwnerOrAdmin(session);
+  usersButton.addEventListener("click", () => {
+    if (!isOwnerOrAdmin(session)) {
+      return;
+    }
+    navigate("#/admin/users");
+  });
+
+  adminActions.append(adminButton, usersButton);
+
+  header.append(titleBlock, adminActions);
   panel.appendChild(header);
 
   const status = document.createElement("div");
@@ -1171,6 +1448,11 @@ async function renderRoute() {
 
   if (hash === "#/admin") {
     renderAdminInspection(appRoot, session, config);
+    return;
+  }
+
+  if (hash === "#/admin/users") {
+    renderAdminUsersPage(appRoot, session, config);
     return;
   }
 
