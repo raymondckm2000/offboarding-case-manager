@@ -215,3 +215,8 @@ a {
   font-weight: 600;
   color: #1f2933;
 }
+
+.actions-inline {
+  display: flex;
+  gap: 0.5rem;
+}

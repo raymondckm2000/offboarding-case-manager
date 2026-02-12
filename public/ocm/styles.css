@@ -179,3 +179,12 @@ a {
   font-weight: 600;
   text-transform: capitalize;
 }
+
+.actions-inline {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.results-block {
+  margin-top: 0.75rem;
+}
