@@ -426,6 +426,27 @@ function redeemInvite({ baseUrl, anonKey, accessToken, code }) {
   });
 }
 
+function createOffboardingCase({
+  baseUrl,
+  anonKey,
+  accessToken,
+  employeeName,
+  lastWorkingDay,
+  notes,
+}) {
+  return callRpc({
+    baseUrl,
+    anonKey,
+    accessToken,
+    functionName: "create_offboarding_case",
+    body: {
+      p_employee_name: employeeName ?? null,
+      p_last_working_day: lastWorkingDay ?? null,
+      p_notes: notes ?? null,
+    },
+  });
+}
+
 const accessLayer = {
   listOffboardingCases,
   listTasks,
@@ -445,6 +466,7 @@ const accessLayer = {
   getAuthUser,
   createInvite,
   redeemInvite,
+  createOffboardingCase,
 };
 
 if (typeof module !== "undefined" && module.exports) {

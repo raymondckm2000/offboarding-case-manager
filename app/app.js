@@ -16,6 +16,7 @@ const {
   listRoles,
   assignUserToOrg,
   createInvite,
+  createOffboardingCase,
 } = window.offboardingAccessLayer ?? {};
 const { renderCaseDetailPage } = window.offboardingCaseDetail ?? {};
 
@@ -1461,7 +1462,7 @@ function renderCaseList(container, session, config) {
 
   const note = document.createElement("div");
   note.className = "hint";
-  note.textContent = "Read-only view of cases you can access.";
+  note.textContent = "View and create cases you can access.";
 
   titleBlock.append(heading, note);
 
@@ -1492,7 +1493,19 @@ function renderCaseList(container, session, config) {
     navigate("#/admin/users");
   });
 
-  adminActions.append(adminButton, usersButton);
+  const createCaseButton = document.createElement("button");
+  createCaseButton.className = "button";
+  createCaseButton.textContent = "Create case";
+  const canCreateCase = Boolean(session?.membership?.org_id);
+  createCaseButton.disabled = !canCreateCase;
+  if (!canCreateCase) {
+    createCaseButton.title = "Org not set. Go to #/join first.";
+  }
+  createCaseButton.addEventListener("click", () => {
+    navigate("#/cases/new");
+  });
+
+  adminActions.append(adminButton, usersButton, createCaseButton);
 
   header.append(titleBlock, adminActions);
   panel.appendChild(header);
@@ -1580,6 +1593,137 @@ function renderCaseList(container, session, config) {
         "Unable to load cases. Please verify login and try again.";
       table.innerHTML = "";
     });
+}
+
+function renderCreateCase(container, session, config) {
+  const { shell, main } = buildShell({
+    title: "Create Case",
+    showLogout: true,
+    onLogout: () => {
+      clearSession();
+      navigate("#/login");
+    },
+  });
+
+  renderIdentityPanel(main, session, config);
+
+  const back = document.createElement("button");
+  back.className = "button secondary case-detail__back";
+  back.textContent = "Back to Case List";
+  back.addEventListener("click", () => navigate("#/cases"));
+  main.appendChild(back);
+
+  const panel = document.createElement("section");
+  panel.className = "panel";
+
+  const heading = document.createElement("h1");
+  heading.textContent = "Create case";
+
+  const hint = document.createElement("p");
+  hint.className = "hint";
+  hint.textContent = "Create a new offboarding case in your current org.";
+
+  const form = document.createElement("form");
+  form.className = "form-grid";
+
+  const employeeField = document.createElement("div");
+  employeeField.className = "form-field";
+  const employeeLabel = document.createElement("label");
+  employeeLabel.textContent = "Employee name";
+  const employeeInput = document.createElement("input");
+  employeeInput.type = "text";
+  employeeInput.required = true;
+  employeeInput.autocomplete = "off";
+  employeeField.append(employeeLabel, employeeInput);
+
+  const dateField = document.createElement("div");
+  dateField.className = "form-field";
+  const dateLabel = document.createElement("label");
+  dateLabel.textContent = "Last working day";
+  const dateInput = document.createElement("input");
+  dateInput.type = "date";
+  dateField.append(dateLabel, dateInput);
+
+  const notesField = document.createElement("div");
+  notesField.className = "form-field";
+  const notesLabel = document.createElement("label");
+  notesLabel.textContent = "Notes";
+  const notesInput = document.createElement("textarea");
+  notesInput.rows = 4;
+  notesField.append(notesLabel, notesInput);
+
+  const error = document.createElement("div");
+  error.className = "error";
+
+  const status = document.createElement("div");
+  status.className = "hint";
+
+  function renderJoinOrgHint() {
+    status.textContent = "Org: Not set. Please ";
+    const joinLink = document.createElement("a");
+    joinLink.href = "#/join";
+    joinLink.textContent = "join an org";
+    status.append(joinLink, document.createTextNode(" before creating a case."));
+  }
+
+  const submit = document.createElement("button");
+  submit.type = "submit";
+  submit.className = "button";
+  submit.textContent = "Create";
+
+  if (!session?.membership?.org_id) {
+    renderJoinOrgHint();
+    submit.disabled = true;
+  }
+
+  form.append(employeeField, dateField, notesField, error, status, submit);
+  panel.append(heading, hint, form);
+  main.appendChild(panel);
+  container.appendChild(shell);
+
+  form.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    error.textContent = "";
+    status.textContent = "";
+
+    if (!session?.membership?.org_id) {
+      renderJoinOrgHint();
+      return;
+    }
+
+    if (!createOffboardingCase) {
+      error.textContent = "Create case API unavailable.";
+      return;
+    }
+
+    const employeeName = employeeInput.value.trim();
+    if (!employeeName) {
+      error.textContent = "Employee name is required.";
+      return;
+    }
+
+    submit.disabled = true;
+    submit.textContent = "Creating...";
+
+    try {
+      await createOffboardingCase({
+        baseUrl: config.baseUrl,
+        anonKey: config.anonKey,
+        accessToken: session.accessToken,
+        employeeName,
+        lastWorkingDay: dateInput.value || null,
+        notes: notesInput.value.trim() || null,
+      });
+      status.textContent = "Case created. Redirecting...";
+      await hydrateIdentity(config, session);
+      setTimeout(() => navigate("#/cases"), 250);
+    } catch (requestError) {
+      error.textContent = getRpcErrorMessage(requestError);
+    } finally {
+      submit.disabled = false;
+      submit.textContent = "Create";
+    }
+  });
 }
 
 function renderOwnerPage(container, session, config) {
@@ -1790,6 +1934,11 @@ async function renderRoute() {
 
   if (route === "#/cases") {
     renderCaseList(appRoot, hydratedSession, config);
+    return;
+  }
+
+  if (route === "#/cases/new") {
+    renderCreateCase(appRoot, hydratedSession, config);
     return;
   }
 
