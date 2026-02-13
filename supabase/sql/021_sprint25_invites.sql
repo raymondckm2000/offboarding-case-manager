@@ -1,5 +1,7 @@
 -- Sprint 25: invite flow for single-org onboarding
 
+create extension if not exists "pgcrypto";
+
 create table if not exists org_invites (
   id uuid primary key default gen_random_uuid(),
   org_id uuid not null references orgs(id) on delete cascade,

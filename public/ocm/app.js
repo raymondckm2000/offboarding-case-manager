@@ -13,6 +13,7 @@ const {
   searchUsersByEmail,
   listRoles,
   assignUserToOrg,
+  createInvite,
 } = window.offboardingAccessLayer ?? {};
 const { renderCaseDetailPage } = window.offboardingCaseDetail ?? {};
 const { renderAuditTimelineSection } = window.offboardingAuditTimeline ?? {};
@@ -540,7 +541,75 @@ function renderAdminUsersPage(container, session, config) {
 
   form.append(orgField, emailField, roleField, error, status, submit);
   panel.append(heading, hint, form);
+
+  const invitePanel = document.createElement("section");
+  invitePanel.className = "panel";
+
+  const inviteHeading = document.createElement("h2");
+  inviteHeading.textContent = "Create Invite";
+
+  const inviteHint = document.createElement("p");
+  inviteHint.className = "hint";
+  inviteHint.textContent = "Create an org invite code for member/admin/owner roles.";
+
+  const inviteForm = document.createElement("form");
+  inviteForm.className = "form-grid";
+
+  const inviteEmailField = document.createElement("div");
+  inviteEmailField.className = "form-field";
+  const inviteEmailLabel = document.createElement("label");
+  inviteEmailLabel.textContent = "Email (optional)";
+  const inviteEmailInput = document.createElement("input");
+  inviteEmailInput.type = "email";
+  inviteEmailInput.placeholder = "name@example.com";
+  inviteEmailInput.autocomplete = "off";
+  inviteEmailField.append(inviteEmailLabel, inviteEmailInput);
+
+  const inviteRoleField = document.createElement("div");
+  inviteRoleField.className = "form-field";
+  const inviteRoleLabel = document.createElement("label");
+  inviteRoleLabel.textContent = "Role";
+  const inviteRoleSelect = document.createElement("select");
+  ["member", "admin", "owner"].forEach((role) => {
+    const option = document.createElement("option");
+    option.value = role;
+    option.textContent = role;
+    inviteRoleSelect.appendChild(option);
+  });
+  inviteRoleField.append(inviteRoleLabel, inviteRoleSelect);
+
+  const inviteError = document.createElement("div");
+  inviteError.className = "error";
+  const inviteStatus = document.createElement("div");
+  inviteStatus.className = "hint";
+
+  const inviteResult = document.createElement("div");
+  inviteResult.className = "hint";
+  const inviteCodeLine = document.createElement("div");
+  const inviteExpiryLine = document.createElement("div");
+  const copyButton = document.createElement("button");
+  copyButton.type = "button";
+  copyButton.className = "button secondary";
+  copyButton.textContent = "Copy";
+  copyButton.disabled = true;
+  inviteResult.append(inviteCodeLine, inviteExpiryLine, copyButton);
+
+  const inviteSubmit = document.createElement("button");
+  inviteSubmit.type = "submit";
+  inviteSubmit.className = "button";
+  inviteSubmit.textContent = "Create invite";
+
+  inviteForm.append(
+    inviteEmailField,
+    inviteRoleField,
+    inviteError,
+    inviteStatus,
+    inviteResult,
+    inviteSubmit,
+  );
+  invitePanel.append(inviteHeading, inviteHint, inviteForm);
   main.appendChild(panel);
+  main.appendChild(invitePanel);
   container.appendChild(shell);
 
   const userOptions = [];
@@ -712,12 +781,74 @@ function renderAdminUsersPage(container, session, config) {
     }
   });
 
+  let latestInviteCode = "";
+
+  inviteForm.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    inviteError.textContent = "";
+    inviteStatus.textContent = "";
+    inviteCodeLine.textContent = "";
+    inviteExpiryLine.textContent = "";
+    copyButton.disabled = true;
+
+    if (!createInvite) {
+      inviteError.textContent = "Invite API unavailable.";
+      return;
+    }
+
+    const email = inviteEmailInput.value.trim();
+    const role = inviteRoleSelect.value;
+    inviteSubmit.disabled = true;
+    inviteSubmit.textContent = "Creating...";
+
+    try {
+      const rows = await createInvite({
+        baseUrl: config.baseUrl,
+        anonKey: config.anonKey,
+        accessToken: session.accessToken,
+        email: email || null,
+        role,
+      });
+      const invite = Array.isArray(rows) ? rows[0] ?? null : rows;
+      latestInviteCode = String(invite?.invite_code ?? "");
+      if (!latestInviteCode) {
+        inviteError.textContent = "Request failed. Please try again.";
+        return;
+      }
+      inviteCodeLine.textContent = `invite_code: ${latestInviteCode}`;
+      inviteExpiryLine.textContent = `expires_at: ${invite?.expires_at ?? "unknown"}`;
+      inviteStatus.textContent = "Invite created.";
+      copyButton.disabled = false;
+    } catch (requestError) {
+      inviteError.textContent = getRpcErrorMessage(requestError);
+    } finally {
+      inviteSubmit.disabled = false;
+      inviteSubmit.textContent = "Create invite";
+    }
+  });
+
+  copyButton.addEventListener("click", async () => {
+    inviteError.textContent = "";
+    if (!latestInviteCode) {
+      inviteError.textContent = "No invite code to copy.";
+      return;
+    }
+    try {
+      await navigator.clipboard.writeText(latestInviteCode);
+      inviteStatus.textContent = "Invite code copied.";
+    } catch (errorCopy) {
+      inviteError.textContent = getRpcErrorMessage(errorCopy);
+    }
+  });
+
   if (!session?.membership?.org_id) {
     status.textContent = "Org not set. Role management is unavailable.";
     submit.disabled = true;
+    invitePanel.style.display = "none";
   } else if (!isOwnerOrAdmin(session)) {
     status.textContent = "Access denied.";
     submit.disabled = true;
+    invitePanel.style.display = "none";
   } else {
     loadLookups();
   }
