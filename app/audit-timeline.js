@@ -7,6 +7,8 @@
 
 const ACTION_LABELS = {
   "case.create": "Case created",
+  case_created: "Case created",
+  case_status_transition: "Case status transition",
   "case.close": "Case closed",
   case_closed: "Case closed",
   case_closure: "Case closed",
@@ -83,7 +85,14 @@ function renderEmptyState(list) {
 function renderErrorState(list, error) {
   const failure = document.createElement("li");
   failure.className = "audit-timeline__error";
-  failure.textContent = `Unable to load audit timeline (${error?.status ?? "error"}).`;
+  const statusCode = error?.status ? `HTTP ${error.status}` : "HTTP error";
+  const message =
+    error?.payload?.message ??
+    error?.payload?.error_description ??
+    error?.payload?.error ??
+    error?.message ??
+    "Unknown error";
+  failure.textContent = `Unable to load audit timeline (${statusCode}: ${message}).`;
   list.appendChild(failure);
 }
 
