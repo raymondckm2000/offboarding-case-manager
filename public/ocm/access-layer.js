@@ -297,8 +297,28 @@ function listAuditLogs({ baseUrl, anonKey, accessToken, caseId }) {
     method: "GET",
     query: {
       select: "*",
-      case_id: `eq.${caseId}`,
+      entity_type: "eq.offboarding_case",
+      entity_id: `eq.${caseId}`,
       order: "created_at.desc",
+    },
+  });
+}
+
+function transitionOffboardingCaseStatus({
+  baseUrl,
+  anonKey,
+  accessToken,
+  caseId,
+  toStatus,
+}) {
+  return callRpc({
+    baseUrl,
+    anonKey,
+    accessToken,
+    functionName: "transition_offboarding_case_status",
+    body: {
+      case_id: caseId ?? null,
+      to_status: toStatus ?? null,
     },
   });
 }
@@ -454,6 +474,7 @@ const accessLayer = {
   listReportingCaseSla,
   listReportingCaseEscalation,
   listAuditLogs,
+  transitionOffboardingCaseStatus,
   ownerAssignCaseReviewer,
   listManageableOrgs,
   getCurrentOrgContext,

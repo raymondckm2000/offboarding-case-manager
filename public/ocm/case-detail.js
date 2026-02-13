@@ -8,7 +8,23 @@
       ? require("./access-layer")
       : window.offboardingAccessLayer;
   const { renderAuditTimelineSection } = auditTimeline;
-  const { listTasks } = accessLayer;
+  const {
+    listTasks,
+    listOffboardingCases,
+    transitionOffboardingCaseStatus,
+  } = accessLayer;
+
+const STATUS_TRANSITIONS = {
+  draft: [{ label: "Submit", toStatus: "submitted" }],
+  submitted: [{ label: "Move to Under Review", toStatus: "under_review" }],
+  under_review: [
+    { label: "Approve", toStatus: "approved" },
+    { label: "Reject", toStatus: "rejected" },
+  ],
+  rejected: [{ label: "Reopen", toStatus: "draft" }],
+  approved: [{ label: "Close", toStatus: "closed" }],
+  closed: [],
+};
 
 function renderCaseHeader(container, caseRecord) {
   const header = document.createElement("header");
@@ -31,16 +47,13 @@ function renderCaseHeader(container, caseRecord) {
 
 function formatCaseStatus(status) {
   const normalized = (status ?? "").toLowerCase();
-  if (normalized === "closed") {
-    return "Closed";
+  if (!normalized) {
+    return "unknown";
   }
-  if (normalized === "ready_to_close" || normalized === "in_review") {
-    return "In Review";
-  }
-  if (normalized === "open") {
-    return "Open";
-  }
-  return status ?? "unknown";
+  return normalized
+    .split("_")
+    .map((token) => token.charAt(0).toUpperCase() + token.slice(1))
+    .join(" ");
 }
 
 function renderStatusHeader(container, caseRecord) {
@@ -145,19 +158,43 @@ async function renderCaseDetailPage({
   baseUrl,
   anonKey,
   accessToken,
+  onCaseTransition,
 }) {
   if (!container) {
     throw new Error("container is required");
   }
 
-  renderCaseHeader(container, caseRecord);
-  renderStatusHeader(container, caseRecord);
+  let activeCase = caseRecord;
+
+  renderCaseHeader(container, activeCase);
+  renderStatusHeader(container, activeCase);
+
+  const lifecycleSection = document.createElement("section");
+  lifecycleSection.className = "case-detail__status-header";
+
+  const lifecycleHeading = document.createElement("h2");
+  lifecycleHeading.textContent = "Lifecycle Actions";
+  lifecycleSection.appendChild(lifecycleHeading);
+
+  const lifecycleError = document.createElement("div");
+  lifecycleError.className = "error";
+  lifecycleSection.appendChild(lifecycleError);
+
+  const lifecycleStatus = document.createElement("div");
+  lifecycleStatus.className = "hint";
+  lifecycleSection.appendChild(lifecycleStatus);
+
+  const lifecycleActions = document.createElement("div");
+  lifecycleActions.className = "actions-inline";
+  lifecycleSection.appendChild(lifecycleActions);
+
+  container.appendChild(lifecycleSection);
 
   const readinessPanel = renderClosureReadinessPanel(container);
   const completionSummary = renderCompletionSummary(container);
 
-  const hasCaseId = Boolean(caseRecord?.id);
-  const hasOrgId = Boolean(caseRecord?.org_id);
+  const hasCaseId = Boolean(activeCase?.id);
+  const hasOrgId = Boolean(activeCase?.org_id);
 
   if (hasCaseId && hasOrgId) {
     try {
@@ -165,8 +202,8 @@ async function renderCaseDetailPage({
         baseUrl,
         anonKey,
         accessToken,
-        orgId: caseRecord.org_id,
-        caseId: caseRecord.id,
+        orgId: activeCase.org_id,
+        caseId: activeCase.id,
       });
       const summary = summarizeTasks(tasks ?? []);
 
@@ -178,11 +215,11 @@ async function renderCaseDetailPage({
         readinessPanel.statusLine.textContent = "All required tasks complete.";
       }
 
-      if (caseRecord?.status === "closed") {
+      if (activeCase?.status === "closed") {
         readinessPanel.details.textContent =
           "Read-only / Case closed.";
       } else {
-        readinessPanel.details.textContent = `Server status: ${formatCaseStatus(caseRecord?.status)} (read-only).`;
+        readinessPanel.details.textContent = `Server status: ${formatCaseStatus(activeCase?.status)} (read-only).`;
       }
 
       if (summary.totalCount === 0) {
@@ -221,9 +258,83 @@ async function renderCaseDetailPage({
       baseUrl,
       anonKey,
       accessToken,
-      caseId: caseRecord?.id,
+      caseId: activeCase?.id,
     });
   }
+
+  function renderLifecycleActions() {
+    lifecycleActions.innerHTML = "";
+    lifecycleError.textContent = "";
+    lifecycleStatus.textContent = "";
+
+    const normalizedStatus = String(activeCase?.status ?? "").toLowerCase();
+    const actions = STATUS_TRANSITIONS[normalizedStatus] ?? [];
+
+    if (actions.length === 0) {
+      lifecycleStatus.textContent = "No lifecycle actions available.";
+      return;
+    }
+
+    actions.forEach((action) => {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = "button";
+      button.textContent = action.label;
+      button.addEventListener("click", async () => {
+        lifecycleError.textContent = "";
+        lifecycleStatus.textContent = "Updating case status...";
+        lifecycleActions.querySelectorAll("button").forEach((item) => {
+          item.disabled = true;
+        });
+
+        try {
+          await transitionOffboardingCaseStatus({
+            baseUrl,
+            anonKey,
+            accessToken,
+            caseId: activeCase?.id,
+            toStatus: action.toStatus,
+          });
+          const refreshed = await listOffboardingCases({
+            baseUrl,
+            anonKey,
+            accessToken,
+            caseId: activeCase?.id,
+            limit: 1,
+          });
+          activeCase = refreshed?.[0] ?? activeCase;
+          if (typeof onCaseTransition === "function") {
+            await onCaseTransition(activeCase);
+          }
+          container.innerHTML = "";
+          await renderCaseDetailPage({
+            container,
+            caseRecord: activeCase,
+            baseUrl,
+            anonKey,
+            accessToken,
+            onCaseTransition,
+          });
+        } catch (error) {
+          const statusCode = error?.status ? `HTTP ${error.status}` : "HTTP error";
+          const message =
+            error?.payload?.message ??
+            error?.payload?.error_description ??
+            error?.payload?.error ??
+            error?.message ??
+            "Unknown error";
+          lifecycleError.textContent = `${statusCode}: ${message}`;
+          lifecycleStatus.textContent = "";
+          lifecycleActions.querySelectorAll("button").forEach((item) => {
+            item.disabled = false;
+          });
+        }
+      });
+      lifecycleActions.appendChild(button);
+    });
+  }
+
+  renderLifecycleActions();
 
   await refreshAuditTimeline();
 }

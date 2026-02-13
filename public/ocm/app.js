@@ -25,6 +25,27 @@ const PENDING_INVITE_KEY = "ocm.pendingInvite";
 const RUNTIME_CONFIG_ENDPOINT = "/api/runtime-config";
 let runtimeConfigPromise;
 
+function getBuildVersionLabel() {
+  const explicitVersion =
+    window.__BUILD_SHA__ ??
+    window.APP_VERSION ??
+    window.__APP_VERSION__ ??
+    window.OCM_APP_VERSION;
+
+  if (typeof explicitVersion === "string" && explicitVersion.trim()) {
+    return explicitVersion.trim();
+  }
+
+  const metaVersion = document.querySelector('meta[name="app-version"]')?.content;
+  if (typeof metaVersion === "string" && metaVersion.trim()) {
+    return metaVersion.trim();
+  }
+
+  return "dev";
+}
+
+const APP_VERSION_LABEL = getBuildVersionLabel();
+
 function normalizeRuntimeConfig(payload) {
   return {
     baseUrl: payload?.supabaseUrl ?? payload?.baseUrl ?? undefined,
@@ -322,6 +343,11 @@ function buildShell({ title, showLogout, onLogout }) {
   appTitle.textContent = title;
 
   header.appendChild(appTitle);
+
+  const version = document.createElement("div");
+  version.className = "app-version";
+  version.textContent = `Version: ${APP_VERSION_LABEL}`;
+  header.appendChild(version);
 
   if (showLogout) {
     const logout = document.createElement("button");
