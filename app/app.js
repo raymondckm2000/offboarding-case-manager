@@ -2039,6 +2039,22 @@ function renderCaseDetail(container, session, config, caseId) {
         baseUrl: config.baseUrl,
         anonKey: config.anonKey,
         accessToken: session.accessToken,
+        onCaseTransition: async () => {
+          await Promise.all([
+            listOffboardingCases({
+              baseUrl: config.baseUrl,
+              anonKey: config.anonKey,
+              accessToken: session.accessToken,
+              caseId,
+              limit: 1,
+            }),
+            listOffboardingCases({
+              baseUrl: config.baseUrl,
+              anonKey: config.anonKey,
+              accessToken: session.accessToken,
+            }),
+          ]);
+        },
       });
     })
     .catch((error) => {
