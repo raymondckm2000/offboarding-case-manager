@@ -401,6 +401,19 @@ function assignUserToOrg({ baseUrl, anonKey, accessToken, userId, orgId, role })
   });
 }
 
+function createInvite({ baseUrl, anonKey, accessToken, email, role }) {
+  return callRpc({
+    baseUrl,
+    anonKey,
+    accessToken,
+    functionName: "create_invite",
+    body: {
+      p_email: email ?? null,
+      p_role: role ?? null,
+    },
+  });
+}
+
 function redeemInvite({ baseUrl, anonKey, accessToken, code }) {
   return callRpc({
     baseUrl,
@@ -430,6 +443,7 @@ const accessLayer = {
   signInWithPassword,
   signUpWithPassword,
   getAuthUser,
+  createInvite,
   redeemInvite,
 };
 
