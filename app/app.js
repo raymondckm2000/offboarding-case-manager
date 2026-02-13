@@ -22,6 +22,7 @@ const { renderCaseDetailPage } = window.offboardingCaseDetail ?? {};
 
 const SESSION_KEY = "ocm.session";
 const CONFIG_KEY = "ocm.config";
+const PENDING_INVITE_KEY = "ocm.pendingInvite";
 const RUNTIME_CONFIG_ENDPOINT = "/api/runtime-config";
 let runtimeConfigPromise;
 
@@ -133,6 +134,62 @@ function saveSession(session) {
 
 function clearSession() {
   window.localStorage.removeItem(SESSION_KEY);
+}
+
+function getPendingInviteCode() {
+  return window.localStorage.getItem(PENDING_INVITE_KEY);
+}
+
+function savePendingInviteCode(code) {
+  if (!code) {
+    return;
+  }
+  window.localStorage.setItem(PENDING_INVITE_KEY, code);
+}
+
+function clearPendingInviteCode() {
+  window.localStorage.removeItem(PENDING_INVITE_KEY);
+}
+
+function renderRouteLinkHint(container, { prefixText = "", linkText, hash, suffixText = "" }) {
+  container.textContent = prefixText;
+  const link = document.createElement("a");
+  link.href = hash;
+  link.textContent = linkText;
+  container.append(link, document.createTextNode(suffixText));
+}
+
+function renderJoinOrgHint(container) {
+  renderRouteLinkHint(container, {
+    prefixText: "Org: Not set. ",
+    linkText: "Open join page",
+    hash: "#/join",
+    suffixText: ".",
+  });
+}
+
+async function redeemPendingInviteAfterLogin(config, session) {
+  const pendingInvite = getPendingInviteCode();
+  if (!pendingInvite || !redeemInvite || !session?.accessToken) {
+    return session;
+  }
+
+  try {
+    await redeemInvite({
+      baseUrl: config.baseUrl,
+      anonKey: config.anonKey,
+      accessToken: session.accessToken,
+      code: pendingInvite,
+    });
+    clearPendingInviteCode();
+    const nextSession = { ...session, pendingInviteError: null };
+    return hydrateIdentity(config, nextSession);
+  } catch (error) {
+    const message = getRpcErrorMessage(error);
+    const nextSession = { ...session, pendingInviteError: `Invite redeem failed: ${message}` };
+    saveSession(nextSession);
+    return nextSession;
+  }
 }
 
 function buildIdentity(user, membership) {
@@ -314,8 +371,10 @@ function renderIdentityPanel(container, session, config) {
     identityHint.textContent = "";
     if (nextSession?.membershipError) {
       identityHint.textContent = `Identity context error: ${getRpcErrorMessage(nextSession.membershipError)}.`;
+    } else if (nextSession?.pendingInviteError) {
+      identityHint.textContent = nextSession.pendingInviteError;
     } else if (nextIdentity?.orgNotSet) {
-      identityHint.textContent = "Org: Not set. Ask an org owner/admin to assign your membership.";
+      renderJoinOrgHint(identityHint);
     }
   }
 
@@ -496,7 +555,8 @@ function renderLogin(container) {
         tokenType: response?.token_type ?? "bearer",
       };
       saveSession(session);
-      hydrateIdentity(config, session);
+      await hydrateIdentity(config, session);
+      await redeemPendingInviteAfterLogin(config, session);
       navigate("#/cases");
     } catch (err) {
       error.textContent =
@@ -509,7 +569,12 @@ function renderLogin(container) {
 
   const registerHint = document.createElement("p");
   registerHint.className = "hint";
-  registerHint.innerHTML = `No account yet? <a href="#/register">Register</a>.`;
+  renderRouteLinkHint(registerHint, {
+    prefixText: "No account yet? ",
+    linkText: "Register",
+    hash: "#/register",
+    suffixText: ".",
+  });
 
   panel.append(heading, hint, form, registerHint);
   main.appendChild(panel);
@@ -632,25 +697,8 @@ function renderRegister(container) {
         saveSession(session);
       }
 
-      if (inviteCode && session?.accessToken && redeemInvite) {
-        await redeemInvite({
-          baseUrl: config.baseUrl,
-          anonKey: config.anonKey,
-          accessToken: session.accessToken,
-          code: inviteCode,
-        });
-        const hydrated = await hydrateIdentity(config, session);
-        status.textContent = "Invite redeemed. Redirecting to case list...";
-        setTimeout(() => {
-          navigate(hydrated?.accessToken ? "#/cases" : "#/login");
-        }, 500);
-        return;
-      }
-
-      if (inviteCode && !session?.accessToken) {
-        status.textContent = "Registration success. Please verify email, then login to redeem invite code.";
-        setTimeout(() => navigate("#/login"), 1000);
-        return;
+      if (inviteCode) {
+        savePendingInviteCode(inviteCode);
       }
 
       if (!session?.accessToken) {
@@ -671,7 +719,12 @@ function renderRegister(container) {
 
   const loginHint = document.createElement("p");
   loginHint.className = "hint";
-  loginHint.innerHTML = `Already have an account? <a href="#/login">Back to login</a>.`;
+  renderRouteLinkHint(loginHint, {
+    prefixText: "Already have an account? ",
+    linkText: "Back to login",
+    hash: "#/login",
+    suffixText: ".",
+  });
 
   panel.append(heading, hint, form, loginHint);
   main.appendChild(panel);
@@ -1658,21 +1711,18 @@ function renderCreateCase(container, session, config) {
   const status = document.createElement("div");
   status.className = "hint";
 
-  function renderJoinOrgHint() {
-    status.textContent = "Org: Not set. Please ";
-    const joinLink = document.createElement("a");
-    joinLink.href = "#/join";
-    joinLink.textContent = "join an org";
-    status.append(joinLink, document.createTextNode(" before creating a case."));
-  }
-
   const submit = document.createElement("button");
   submit.type = "submit";
   submit.className = "button";
   submit.textContent = "Create";
 
   if (!session?.membership?.org_id) {
-    renderJoinOrgHint();
+    renderRouteLinkHint(status, {
+      prefixText: "Org: Not set. ",
+      linkText: "Open join page",
+      hash: "#/join",
+      suffixText: " before creating a case.",
+    });
     submit.disabled = true;
   }
 
@@ -1687,7 +1737,12 @@ function renderCreateCase(container, session, config) {
     status.textContent = "";
 
     if (!session?.membership?.org_id) {
-      renderJoinOrgHint();
+      renderRouteLinkHint(status, {
+        prefixText: "Org: Not set. ",
+        linkText: "Open join page",
+        hash: "#/join",
+        suffixText: " before creating a case.",
+      });
       return;
     }
 
@@ -1722,6 +1777,99 @@ function renderCreateCase(container, session, config) {
     } finally {
       submit.disabled = false;
       submit.textContent = "Create";
+    }
+  });
+}
+
+function renderJoinPage(container, session, config) {
+  const { shell, main } = buildShell({
+    title: "Join Organization",
+    showLogout: true,
+    onLogout: () => {
+      clearSession();
+      navigate("#/login");
+    },
+  });
+
+  renderIdentityPanel(main, session, config);
+
+  const panel = document.createElement("section");
+  panel.className = "panel";
+
+  const heading = document.createElement("h1");
+  heading.textContent = "Join with invite code";
+
+  const hint = document.createElement("p");
+  hint.className = "hint";
+  hint.textContent = "Paste an invite code to join your org.";
+
+  const form = document.createElement("form");
+  form.className = "form-grid";
+
+  const codeField = document.createElement("div");
+  codeField.className = "form-field";
+  const codeLabel = document.createElement("label");
+  codeLabel.textContent = "Invite code";
+  const codeInput = document.createElement("input");
+  codeInput.type = "text";
+  codeInput.required = true;
+  codeInput.autocomplete = "off";
+  codeInput.placeholder = "paste invite code";
+  codeInput.value = getPendingInviteCode() ?? "";
+  codeField.append(codeLabel, codeInput);
+
+  const error = document.createElement("div");
+  error.className = "error";
+
+  const status = document.createElement("div");
+  status.className = "hint";
+
+  const submit = document.createElement("button");
+  submit.type = "submit";
+  submit.className = "button";
+  submit.textContent = "Redeem invite";
+
+  form.append(codeField, error, status, submit);
+  panel.append(heading, hint, form);
+  main.appendChild(panel);
+  container.appendChild(shell);
+
+  form.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    error.textContent = "";
+    status.textContent = "";
+
+    const code = codeInput.value.trim();
+    if (!code) {
+      error.textContent = "Invite code is required.";
+      return;
+    }
+
+    if (!redeemInvite) {
+      error.textContent = "Invite API unavailable.";
+      return;
+    }
+
+    submit.disabled = true;
+    submit.textContent = "Redeeming...";
+
+    try {
+      await redeemInvite({
+        baseUrl: config.baseUrl,
+        anonKey: config.anonKey,
+        accessToken: session.accessToken,
+        code,
+      });
+      clearPendingInviteCode();
+      const nextSession = await hydrateIdentity(config, { ...session, pendingInviteError: null });
+      status.textContent = "Invite redeemed. Redirecting...";
+      setTimeout(() => navigate(nextSession?.accessToken ? "#/cases" : "#/login"), 300);
+    } catch (requestError) {
+      error.textContent = getRpcErrorMessage(requestError);
+      savePendingInviteCode(code);
+    } finally {
+      submit.disabled = false;
+      submit.textContent = "Redeem invite";
     }
   });
 }
@@ -1939,6 +2087,11 @@ async function renderRoute() {
 
   if (route === "#/cases/new") {
     renderCreateCase(appRoot, hydratedSession, config);
+    return;
+  }
+
+  if (route === "#/join") {
+    renderJoinPage(appRoot, hydratedSession, config);
     return;
   }
 
